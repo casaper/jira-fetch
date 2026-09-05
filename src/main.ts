@@ -119,6 +119,7 @@ async function fetchOne(
     assets: manifest,
     baseUrl: config.baseUrl,
     filters: config.filters,
+    people: config.people,
   });
   if (skippedComments > 0) log(`  ${key}: ${skippedComments} comment(s) dropped by filter`);
 

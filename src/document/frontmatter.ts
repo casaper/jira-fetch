@@ -1,28 +1,13 @@
 /** Builds the YAML frontmatter block: everything about the ticket that is worth having in a
- * machine-readable form. */
+ * machine-readable form.
+ *
+ * The rule that shapes it is that a key is present only when it carries something. There is no
+ * `resolution: null`, no `components: []` — absent is spelled one way, by absence. See `prune`. */
 
 import { stringify as stringifyYaml } from '@std/yaml';
-import type { AssetManifest, IssueRef, JiraIssue, JiraUser } from '../jira/types.ts';
-
-/** snake_case because these keys land verbatim in the YAML frontmatter, which is the
- * user-facing output contract — not a style slip. */
-export interface UserRecord {
-  name?: string;
-  email?: string;
-  // deno-lint-ignore camelcase
-  account_id?: string;
-}
-
-/** Anonymous reporters (portal submissions) and unassigned issues stay `null` rather than
- * becoming an empty object, so downstream tooling can tell "absent" from "unknown". */
-function user(u: JiraUser | null | undefined): UserRecord | null {
-  if (!u) return null;
-  const record: UserRecord = {};
-  if (u.displayName) record.name = u.displayName;
-  if (u.emailAddress) record.email = u.emailAddress;
-  if (u.accountId) record.account_id = u.accountId;
-  return Object.keys(record).length > 0 ? record : null;
-}
+import type { PeopleConfig } from '../config/schema.ts';
+import type { AssetManifest, IssueRef, JiraIssue } from '../jira/types.ts';
+import { personRecord } from './people.ts';
 
 function ref(r: IssueRef | null | undefined) {
   if (!r?.key) return null;
@@ -38,6 +23,36 @@ function names(list: Array<{ name?: string }> | undefined): string[] {
   return (list ?? []).map((v) => v.name).filter((n): n is string => typeof n === 'string');
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isEmpty = (value: unknown): boolean =>
+  value === null || value === undefined ||
+  (Array.isArray(value) && value.length === 0) ||
+  (isRecord(value) && Object.keys(value).length === 0);
+
+/** Drops what carries no information: `null`, `undefined`, `[]` and `{}`, recursively.
+ *
+ * Deliberately *not* "falsy". `comment_count: 0` and a `false` are facts, and an empty string is
+ * left alone rather than guessed at — this removes absence, not content.
+ *
+ * Children are pruned before their parents, so `{ parent: { title: null } }` collapses all the
+ * way rather than leaving an empty object behind. Object *properties* are dropped; array
+ * *elements* are pruned in place but never removed, since dropping one would shift every index
+ * after it. The consequence is that nested records go ragged — `parent` may be just `{ key }`,
+ * and one `assets` entry may carry `size` where another does not. That is the same rule applied
+ * consistently rather than stopped at the top level. */
+const prune = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(prune);
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const pruned = prune(child);
+    if (!isEmpty(pruned)) out[key] = pruned;
+  }
+  return out;
+};
+
 export interface FrontmatterInput {
   issue: JiraIssue;
   baseUrl: string;
@@ -45,29 +60,25 @@ export interface FrontmatterInput {
   siblings: IssueRef[];
   assets: AssetManifest;
   commentCount: number;
+  people: PeopleConfig;
   fetchedAt?: Date;
 }
 
 export function buildFrontmatter(input: FrontmatterInput): Record<string, unknown> {
-  const { issue, baseUrl, siblings, assets, commentCount } = input;
+  const { issue, siblings, assets, commentCount, people } = input;
   const f = issue.fields;
+  const person = (u: Parameters<typeof personRecord>[0], role: PeopleConfig['roles'][number]) =>
+    people.roles.includes(role) ? personRecord(u, people) : null;
 
-  return {
+  return prune({
     id: issue.key,
-    internal_id: issue.id,
     title: f.summary ?? null,
-    url: `${baseUrl}/browse/${issue.key}`,
     type: f.issuetype?.name ?? null,
     status: f.status?.name ?? null,
     priority: f.priority?.name ?? null,
     resolution: f.resolution?.name ?? null,
-    project: f.project?.key ?? null,
-    project_name: f.project?.name ?? null,
-    // `author` is the reporter — who raised the ticket, which is what the word means here.
-    author: f.reporter?.displayName ?? null,
-    reporter: user(f.reporter),
-    assignee: user(f.assignee),
-    creator: user(f.creator),
+    reporter: person(f.reporter, 'reporter'),
+    assignee: person(f.assignee, 'assignee'),
     created_at: f.created ?? null,
     updated_at: f.updated ?? null,
     fetched_at: (input.fetchedAt ?? new Date()).toISOString(),
@@ -84,7 +95,7 @@ export function buildFrontmatter(input: FrontmatterInput): Record<string, unknow
       mime_type: a.mimeType ?? null,
       size: a.size ?? null,
     })),
-  };
+  }) as Record<string, unknown>;
 }
 
 export function renderFrontmatter(data: Record<string, unknown>): string {

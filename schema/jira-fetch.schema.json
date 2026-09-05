@@ -332,6 +332,58 @@
       },
       "additionalProperties": false,
       "description": "Which tickets are fetched, and which comments end up in the document"
+    },
+    "people": {
+      "type": "object",
+      "properties": {
+        "roles": {
+          "default": [
+            "reporter",
+            "assignee",
+            "commenter"
+          ],
+          "description": "Which people appear at all. Empty omits every person from the output.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "reporter",
+              "assignee",
+              "commenter"
+            ],
+            "description": "A place a person appears: the two issue fields, and the author of a comment"
+          }
+        },
+        "fields": {
+          "default": [
+            "name",
+            "email"
+          ],
+          "description": "Which properties of a person are recorded. At least one.",
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "name",
+              "email",
+              "accountId"
+            ],
+            "description": "A property of a person"
+          }
+        },
+        "nameFormat": {
+          "default": "full",
+          "description": "How a display name is written. \"initials\" renders \"Kaspar Vollenweider\" as \"KV\", in the frontmatter and in comment headings alike.",
+          "type": "string",
+          "enum": [
+            "full",
+            "initials"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Which people the document names, and how much it says about each"
     }
   },
   "additionalProperties": false,

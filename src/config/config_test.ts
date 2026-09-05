@@ -456,3 +456,19 @@ Deno.test('.env expands a reference only when the value is unquoted', async () =
     assertEquals(env.QUOTED, '$SOURCE');
   });
 });
+
+Deno.test('people defaults are filled in even when the config file omits the block', () => {
+  const config = resolve({}, ENV);
+  assertEquals(config.people, {
+    roles: ['reporter', 'assignee', 'commenter'],
+    fields: ['name', 'email'],
+    nameFormat: 'full',
+  });
+});
+
+Deno.test('a people block in the config file is honoured', () => {
+  const config = resolve({}, ENV, {
+    people: { roles: ['reporter'], fields: ['name'], nameFormat: 'initials' },
+  });
+  assertEquals(config.people, { roles: ['reporter'], fields: ['name'], nameFormat: 'initials' });
+});

@@ -11,7 +11,7 @@ import { parse as parseDotenv } from '@std/dotenv';
 import { parse as parseYaml } from '@std/yaml';
 import { type CompiledFilters, compileFilters } from '../filter/rules.ts';
 import { ConfigError } from './errors.ts';
-import { type ConfigFile, parseConfigFile } from './schema.ts';
+import { type ConfigFile, parseConfigFile, People, type PeopleConfig } from './schema.ts';
 
 export { ConfigError };
 export type { ConfigFile };
@@ -25,6 +25,9 @@ export type Config =
     /** The config file's `out`, resolved to an absolute path. */
     outDir: NonNullable<ConfigFile['out']>;
     filters: CompiledFilters;
+    /** How much the document says about the people on a ticket. Always fully populated, even
+     * when the file omits the block. */
+    people: PeopleConfig;
     /** Where the config came from, for --verbose. */
     configPath?: string;
     /** Non-fatal advice for the user, printed by the caller. Returned rather than logged so this
@@ -289,6 +292,11 @@ export const resolveConfig = (opts: ResolveOptions): Config => {
     // Defaults to true; only an explicit `false` in the config file turns it off.
     allowJql: file?.allowJql !== false,
     filters: compileFilters(file?.filters),
+    // Parsed rather than defaulted here, so the schema stays the only place the defaults are
+    // written. `People.parse` is idempotent, which matters because a `ConfigFile` that never went
+    // through `parseConfigFile` — a hand-built one in a test — carries no defaults despite the
+    // inferred type promising them.
+    people: People.parse(file?.people ?? {}),
     configPath: filePath,
     warnings,
   };

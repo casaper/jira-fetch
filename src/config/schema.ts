@@ -79,6 +79,40 @@ export const Filters = z.strictObject({
   ),
 }).describe('Which tickets are fetched, and which comments end up in the document');
 
+/** Which people a document mentions, and how much it says about each of them.
+ *
+ * Two axes, deliberately separate: `roles` decides *who* appears at all, `fields` decides *what*
+ * is recorded about whoever does. Either can be narrowed without touching the other, and
+ * `roles: []` is how a user says "no people anywhere in the output".
+ *
+ * None of this reaches the filter engine — `reporter`/`assignee` predicates read the issue
+ * payload, so hiding someone from the document never changes which tickets are fetched.
+ */
+export const PersonRole = z.enum(['reporter', 'assignee', 'commenter']).describe(
+  'A place a person appears: the two issue fields, and the author of a comment',
+);
+
+/** camelCase here, snake_case in the frontmatter — `src/document/people.ts` owns the mapping. */
+export const PersonField = z.enum(['name', 'email', 'accountId']).describe(
+  'A property of a person',
+);
+
+export const People = z.strictObject({
+  roles: z.array(PersonRole).default(['reporter', 'assignee', 'commenter']).describe(
+    'Which people appear at all. Empty omits every person from the output.',
+  ),
+  // No `.refine()`: `.min(1)` becomes `minItems: 1` in the published JSON Schema, so an editor
+  // enforces it too. A refinement has no JSON Schema form and would ship a weaker contract.
+  fields: z.array(PersonField).min(1, 'must select at least one field').default(['name', 'email'])
+    .describe('Which properties of a person are recorded. At least one.'),
+  // A sibling key rather than a conditional on `fields`: inert when `name` is not selected, and
+  // an if/then in JSON Schema would cost editor support to say the same thing.
+  nameFormat: z.enum(['full', 'initials']).default('full').describe(
+    'How a display name is written. "initials" renders "Kaspar Vollenweider" as "KV", in the ' +
+      'frontmatter and in comment headings alike.',
+  ),
+}).describe('Which people the document names, and how much it says about each');
+
 export const ConfigFile = z.strictObject({
   $schema: z.string().optional().describe('Path or URL of this JSON Schema, for editor support'),
   baseUrl: z.url().optional().describe('Jira site, e.g. https://your-site.atlassian.net'),
@@ -94,6 +128,7 @@ export const ConfigFile = z.strictObject({
       'tool makes on its own.',
   ),
   filters: Filters.optional(),
+  people: People.optional(),
 }).describe('Configuration for jira-fetch');
 
 export type ValueMatcher = z.infer<typeof ValueMatcher>;
@@ -101,6 +136,9 @@ export type TitlePredicate = z.infer<typeof TitlePredicate>;
 export type TicketRule = z.infer<typeof TicketRule>;
 export type CommentRule = z.infer<typeof CommentRule>;
 export type FiltersConfig = z.infer<typeof Filters>;
+export type PersonRole = z.infer<typeof PersonRole>;
+export type PersonField = z.infer<typeof PersonField>;
+export type PeopleConfig = z.infer<typeof People>;
 export type ConfigFile = z.infer<typeof ConfigFile>;
 
 /** Renders Zod issues as `path: message` lines, so an error points at the offending rule. */

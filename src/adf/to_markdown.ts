@@ -20,8 +20,12 @@ export interface ConvertOptions {
 const IMAGE_MIME = /^image\//;
 
 /** Escapes the characters that would otherwise be read as Markdown syntax. Deliberately narrow:
- * over-escaping turns readable prose into backslash soup. */
-function escapeText(text: string): string {
+ * over-escaping turns readable prose into backslash soup.
+ *
+ * Exported because the document's `# title` link label needs exactly this set — a summary
+ * containing `[` would otherwise break the link — and a second escaper would eventually disagree
+ * with this one. */
+export function escapeText(text: string): string {
   return text.replace(/([\\`*_[\]<>])/g, '\\$1');
 }
 

@@ -25,3 +25,12 @@ filters:
   comments:
     exclude:
       - author: [Automation for Jira]
+
+# How much the document says about people. These are the defaults; delete the block to keep them.
+people:
+  # Who appears at all. An empty list leaves people out of the document entirely.
+  roles: [reporter, assignee, commenter]
+  # What is recorded about them, in this order. At least one.
+  fields: [name, email]
+  # `initials` writes "Kaspar Vollenweider" as "KV", in the frontmatter and comment headings alike.
+  nameFormat: full

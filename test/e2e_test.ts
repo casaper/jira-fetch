@@ -152,7 +152,9 @@ Deno.test('fetches an issue into a Markdown file with its assets alongside', asy
     const markdown = await Deno.readTextFile(join(out, 'DN-1243.md'));
     assert(markdown.startsWith('---\n'));
     assertStringIncludes(markdown, 'id: DN-1243');
-    assertStringIncludes(markdown, '# Spike: evaluate the export pipeline');
+    // The heading carries the ticket link, which is what replaced the frontmatter's `url`.
+    assertStringIncludes(markdown, '# [Spike: evaluate the export pipeline](');
+    assertStringIncludes(markdown, '/browse/DN-1243)');
     assertStringIncludes(markdown, '![the screen](.DN-1243/screenshot_01.png)');
 
     // Both attachments land in the hidden per-issue directory, de-duplicated by name.

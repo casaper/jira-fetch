@@ -13,8 +13,10 @@ jira-fetch DN-1243 --out tmp
 # tmp/.DN-1243/screenshot_01.png
 ```
 
-The document is a plain Markdown file: machine-readable metadata in the frontmatter, the description
-as Markdown, then every comment appended after a `---` rule. Images and files from both the
+The document is a plain Markdown file: machine-readable metadata in the frontmatter, a heading that
+links back to the ticket, the description as Markdown, then every comment appended after a `---`
+rule. The frontmatter carries only what the ticket actually has — a key you do not see is a value
+Jira did not have. Images and files from both the
 description and the comments are downloaded next to it and linked relatively, so the document stays
 readable offline and survives being moved with its asset directory.
 
@@ -138,6 +140,25 @@ the same Zod definitions the CLI validates against (`deno task schema`), so the 
 It is published at
 <https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json>; point
 `$schema` at a local copy instead if you would rather not fetch it.
+
+### People
+
+How much the document says about the people on a ticket is up to you:
+
+```yaml
+people:
+  roles: [reporter, assignee, commenter] # who appears at all; [] leaves people out entirely
+  fields: [name, email] # what is recorded about them; at least one
+  nameFormat: full # or: initials
+```
+
+Those are the defaults. `roles` and `fields` are independent axes — narrow either without touching
+the other — and `nameFormat: initials` writes `Kaspar Vollenweider` as `KV`, in the frontmatter and
+in comment headings alike. It shortens a **name** and only a name: when someone has no display name
+and a heading falls through to their email address, the address is left whole.
+
+This is presentation only. `reporter` and `assignee` **filters** read the issue itself, so leaving
+someone out of the document never changes which tickets are fetched.
 
 ### What "never fetched" really means
 

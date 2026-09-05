@@ -52,6 +52,11 @@ CONFIGURATION
   The config file is meant to be committed, so that a project's filters apply to everyone
   working in it. Your API token is not: keep it in .env.local, the environment, or --token.
 
+  Only the file can set these:
+    filters     which tickets are fetched, and which comments end up in the document
+    people      which of reporter/assignee/commenter appear, and how much each says
+    allowJql    when false, --jql is refused
+
 OUTPUT
   <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)
   <out>/.<ISSUE-KEY>/          its attachments

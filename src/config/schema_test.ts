@@ -83,3 +83,41 @@ Deno.test('baseUrl and email are validated as a URL and an address', () => {
 Deno.test('an empty config file is valid: everything may come from flags or the environment', () => {
   assertEquals(parseConfigFile({}, 'cfg'), {});
 });
+
+Deno.test('the people block fills in its defaults', () => {
+  const config = parseConfigFile({ people: {} }, 'cfg');
+  assertEquals(config.people, {
+    roles: ['reporter', 'assignee', 'commenter'],
+    fields: ['name', 'email'],
+    nameFormat: 'full',
+  });
+});
+
+Deno.test('an empty roles list is how a user says "no people at all"', () => {
+  const config = parseConfigFile({ people: { roles: [] } }, 'cfg');
+  assertEquals(config.people?.roles, []);
+  // The field selection is untouched by that: the two axes are independent.
+  assertEquals(config.people?.fields, ['name', 'email']);
+});
+
+Deno.test('an empty field selection is refused: a person needs at least one property', () => {
+  const error = assertThrows(
+    () => parseConfigFile({ people: { fields: [] } }, 'cfg'),
+    ConfigError,
+  );
+  assertStringIncludes(error.message, 'people.fields');
+  assertStringIncludes(error.message, 'at least one field');
+});
+
+Deno.test('an unknown role, field or name format is refused', () => {
+  for (
+    const people of [
+      { roles: ['watcher'] },
+      { fields: ['account_id'] },
+      { nameFormat: 'short' },
+      { nameFormat: 'full', extra: true },
+    ]
+  ) {
+    assertThrows(() => parseConfigFile({ people }, 'cfg'), ConfigError);
+  }
+});

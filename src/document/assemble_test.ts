@@ -3,12 +3,19 @@ import { parse as parseYaml } from '@std/yaml';
 import { assembleDocument } from './assemble.ts';
 import { buildManifest } from '../assets/download.ts';
 import { compileFilters } from '../filter/rules.ts';
-import type { FiltersConfig } from '../config/schema.ts';
+import { type FiltersConfig, People, type PeopleConfig } from '../config/schema.ts';
 import { commentsFixture, issueFixture } from '../../test/fixtures.ts';
 
 const FETCHED_AT = new Date('2026-09-05T15:00:00.000Z');
 
-function assemble(filters?: FiltersConfig) {
+/** The shipped defaults, parsed rather than restated, so these tests fail if the schema's
+ * defaults change rather than quietly testing a stale copy of them. */
+const DEFAULT_PEOPLE = People.parse({});
+
+const people = (overrides: Partial<PeopleConfig> = {}): PeopleConfig =>
+  People.parse({ ...DEFAULT_PEOPLE, ...overrides });
+
+function assemble(filters?: FiltersConfig, peopleConfig: PeopleConfig = DEFAULT_PEOPLE) {
   const issue = issueFixture();
   return assembleDocument({
     issue,
@@ -17,6 +24,7 @@ function assemble(filters?: FiltersConfig) {
     assets: buildManifest(issue.fields.attachment, issue.key),
     baseUrl: 'https://example.atlassian.net',
     filters: compileFilters(filters),
+    people: peopleConfig,
     fetchedAt: FETCHED_AT,
   });
 }
@@ -29,35 +37,143 @@ function frontmatterOf(markdown: string): Record<string, unknown> {
 Deno.test('the document opens with a YAML frontmatter block', () => {
   const { markdown } = assemble();
   assert(markdown.startsWith('---\n'));
-  assertStringIncludes(markdown, '\n---\n\n# Spike: evaluate the export pipeline');
+  assertStringIncludes(markdown, '\n---\n\n# [Spike: evaluate the export pipeline]');
+});
+
+Deno.test('the title heading links to the ticket', () => {
+  const { markdown } = assemble();
+  assertStringIncludes(
+    markdown,
+    '# [Spike: evaluate the export pipeline](https://example.atlassian.net/browse/DN-1243)',
+  );
+});
+
+Deno.test('a title containing Markdown syntax is escaped in the link label', () => {
+  const issue = issueFixture();
+  issue.fields.summary = 'Fix [SUP-1] and _the_ exporter';
+  const { markdown } = assembleDocument({
+    issue,
+    comments: [],
+    siblings: [],
+    assets: new Map(),
+    baseUrl: 'https://example.atlassian.net',
+    filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
+  });
+  assertStringIncludes(
+    markdown,
+    '# [Fix \\[SUP-1\\] and \\_the\\_ exporter](https://example.atlassian.net/browse/DN-1243)',
+  );
 });
 
 Deno.test("frontmatter carries the ticket's machine-readable metadata", () => {
   const data = frontmatterOf(assemble().markdown);
 
   assertEquals(data.id, 'DN-1243');
-  assertEquals(data.internal_id, '10234');
   assertEquals(data.title, 'Spike: evaluate the export pipeline');
-  assertEquals(data.url, 'https://example.atlassian.net/browse/DN-1243');
   assertEquals(data.type, 'Task');
   assertEquals(data.status, 'In Progress');
-  assertEquals(data.project, 'DN');
+  assertEquals(data.priority, 'Medium');
   assertEquals(data.created_at, '2026-08-01T09:12:00.000+0200');
   assertEquals(data.updated_at, '2026-08-14T16:40:11.000+0200');
   assertEquals(data.fetched_at, FETCHED_AT.toISOString());
   assertEquals(data.labels, ['backend', 'wontfix']);
   assertEquals(data.components, ['api', 'exporter']);
+  assertEquals(data.fix_versions, ['2026.9']);
 });
 
-Deno.test('an anonymous reporter stays null rather than becoming an empty object', () => {
+Deno.test('the keys that duplicate the ticket id or the link are gone', () => {
   const data = frontmatterOf(assemble().markdown);
-  assertEquals(data.author, null);
-  assertEquals(data.reporter, null);
-  assertEquals(data.assignee, {
-    name: 'Kim Rivera',
-    email: 'kim@example.com',
-    account_id: '5b10a2844c20165700ede21g',
+  for (const key of ['internal_id', 'url', 'creator', 'author', 'project', 'project_name']) {
+    assertFalse(key in data, `${key} should no longer be written`);
+  }
+});
+
+Deno.test('absent values are omitted rather than spelled out', () => {
+  const issue = issueFixture();
+  issue.fields.components = [];
+  issue.fields.attachment = [];
+  const { markdown } = assembleDocument({
+    issue,
+    comments: [],
+    siblings: [],
+    assets: new Map(),
+    baseUrl: 'https://example.atlassian.net',
+    filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
   });
+  const data = frontmatterOf(markdown);
+
+  // Null in the payload: an unresolved ticket, an anonymous portal reporter.
+  assertFalse('resolution' in data);
+  assertFalse('reporter' in data);
+  // Empty collections.
+  assertFalse('components' in data);
+  assertFalse('siblings' in data);
+  assertFalse('assets' in data);
+  // Empty is not falsy: a ticket with no comments still says so.
+  assertEquals(data.comment_count, 0);
+});
+
+Deno.test('pruning reaches inside nested records', () => {
+  const issue = issueFixture();
+  issue.fields.parent = { key: 'DN-1200' };
+  const attachment = issue.fields.attachment?.[0];
+  assert(attachment);
+  delete attachment.size;
+  const { markdown } = assembleDocument({
+    issue,
+    comments: [],
+    siblings: [],
+    assets: buildManifest([attachment], issue.key),
+    baseUrl: 'https://example.atlassian.net',
+    filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
+  });
+  const data = frontmatterOf(markdown);
+
+  // A parent with no summary, type or status collapses to the one thing it does have.
+  assertEquals(data.parent, { key: 'DN-1200' });
+  // Entries in a list go ragged rather than carrying empty placeholders.
+  assertEquals(data.assets, [{
+    filename: 'screenshot_01.png',
+    path: '.DN-1243/screenshot_01.png',
+    mime_type: 'image/png',
+  }]);
+});
+
+Deno.test('people carry the configured fields, and nobody else', () => {
+  const data = frontmatterOf(assemble().markdown);
+  // Defaults are name + email; the opaque account_id is available but not written.
+  assertEquals(data.assignee, { name: 'Kim Rivera', email: 'kim@example.com' });
+  // An anonymous reporter has no record at all, so the key is absent.
+  assertFalse('reporter' in data);
+});
+
+Deno.test('the field selection picks what is recorded, in the order given', () => {
+  const data = frontmatterOf(
+    assemble(undefined, people({ fields: ['accountId', 'name'] })).markdown,
+  );
+  assertEquals(data.assignee, {
+    account_id: '5b10a2844c20165700ede21g',
+    name: 'Kim Rivera',
+  });
+});
+
+Deno.test('a role left out of the config disappears from the document', () => {
+  const { markdown } = assemble(undefined, people({ roles: [] }));
+  const data = frontmatterOf(markdown);
+  assertFalse('assignee' in data);
+  assertFalse('reporter' in data);
+  // The comment heading falls back to its date alone.
+  assertStringIncludes(markdown, '### 2026-08-05T11:00:00.000+0200');
+  assertFalse(markdown.includes('Kim Rivera —'));
+});
+
+Deno.test('initials shorten a name everywhere it appears', () => {
+  const { markdown } = assemble(undefined, people({ nameFormat: 'initials' }));
+  assertEquals(frontmatterOf(markdown).assignee, { name: 'KR', email: 'kim@example.com' });
+  assertStringIncludes(markdown, '### KR — 2026-08-05T11:00:00.000+0200');
 });
 
 Deno.test('parent, siblings and subtasks are recorded', () => {
@@ -85,7 +201,12 @@ Deno.test('comments follow the description, each behind a horizontal rule', () =
   const body = markdown.slice(markdown.indexOf('\n---\n', 4) + 5);
   assertEquals(body.split('\n---\n').length - 1, 3);
   assertStringIncludes(markdown, '### Kim Rivera — 2026-08-05T11:00:00.000+0200');
-  assertStringIncludes(markdown, '### Anonymous — 2026-08-06T09:30:00.000+0200');
+});
+
+Deno.test('an anonymous comment is headed by its date, not by a placeholder name', () => {
+  const { markdown } = assemble();
+  assertStringIncludes(markdown, '### 2026-08-06T09:30:00.000+0200');
+  assertFalse(markdown.includes('Anonymous'));
 });
 
 Deno.test("a comment's media resolves through the same manifest as the description", () => {
@@ -111,6 +232,7 @@ Deno.test('an issue with no description says so rather than leaving a gap', () =
     assets: new Map(),
     baseUrl: 'https://example.atlassian.net',
     filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
   });
   assertStringIncludes(markdown, '*No description.*');
   assert(markdown.endsWith('\n'));

@@ -348,8 +348,25 @@ Changing any of this breaks people's existing files.
   `fetched_at`) — so the document is not a safe place for a user's own annotations.
 - `<out>/.<JIRA-ID>/` for assets — note the **leading dot**.
 - Asset links are **relative**, so the document stays portable with its asset directory.
-- Body order: frontmatter → `# title` → description → `---` → each comment, `---`-separated.
+- Body order: frontmatter → `# [title](<baseUrl>/browse/<KEY>)` → description → `---` → each
+  comment, `---`-separated. The heading is a **link**, which is why the frontmatter carries no
+  `url` key; its label goes through `escapeText` from `src/adf/to_markdown.ts`, exported for
+  exactly that, because a summary containing `[` would otherwise break it.
 - A `rule` node in ADF renders as `***`, not `---`, so it cannot be confused with the comment
   separator.
+- **Absence is spelled by absence.** `prune` in `src/document/frontmatter.ts` drops any key whose
+  value is `null`, `undefined`, `[]` or `{}`, recursively — there is no `resolution: null` and no
+  `components: []`. It is deliberately not "falsy": `comment_count: 0` is a fact and stays. The
+  recursion means nested records go ragged, so `parent` may be just `{ key }` and one `assets`
+  entry may carry `size` where another does not.
+- **What the document says about people is configurable**, through the `people` block and
+  `src/document/people.ts` — `roles` decides who appears (`reporter`, `assignee`, `commenter`;
+  empty omits all of them), `fields` decides what is recorded about them, and `nameFormat:
+  initials` shortens a display name in the frontmatter and in comment headings alike. Both paths go
+  through `personRecord`/`personLabel` so they cannot drift into saying different amounts about the
+  same person. None of it reaches the filter engine: `reporter`/`assignee` predicates read the
+  issue payload, so hiding someone never changes which tickets are fetched.
+- An anonymous comment is headed by its date alone. There is no `Anonymous` placeholder — it would
+  read as a real display name, and absence is already spelled by absence everywhere else.
 - Exit codes: `0` success · `1` runtime error · `2` usage/config error · `3` nothing written because
   everything was filtered. Partial runs resolve in that order — **any ticket written → `0`**.
