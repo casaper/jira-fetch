@@ -5,11 +5,13 @@
   "exports": "./src/main.ts",
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write src/main.ts",
-    "check": "deno check src/ scripts/ && deno lint && deno fmt --check && deno run -A scripts/gen_schema.ts --check",
+    "check": "deno check src/ scripts/ && deno lint && deno fmt --check && deno run -A scripts/gen_schema.ts --check && deno run -A scripts/gen_types.ts --check",
     "lint": "deno lint",
     "fmt": "deno fmt",
     "test": "deno test -A",
     "schema": "deno run -A scripts/gen_schema.ts",
+    "vendor:spec": "deno run --allow-net --allow-read --allow-write scripts/vendor_spec.ts",
+    "types": "deno run -A scripts/gen_types.ts",
     "hooks": "git config core.hooksPath .githooks && echo 'commit-msg hook enabled'",
     "commitlint": "deno run -A scripts/commit_lint.ts",
     "changelog": "deno run -A scripts/changelog.ts",
@@ -18,6 +20,7 @@
     "build:all": "deno run -A scripts/build_all.ts"
   },
   "fmt": {
+    "exclude": ["spec/"],
     "lineWidth": 100,
     "indentWidth": 2,
     "useTabs": false,
