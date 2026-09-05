@@ -31,6 +31,11 @@ deno task build:all                   # all six release targets
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
 fake Jira on localhost, which is what covers the wiring in `src/main.ts`.
 
+It does need them **absent**: env beats the config file in `resolveConfig`, and the e2e harness
+passes the fake's origin _through_ a config file, so an exported `JIRA_BASE_URL` redirects the
+suite at a real site — 8 failures, or real authenticated requests. Run
+`env -u JIRA_BASE_URL -u JIRA_EMAIL -u JIRA_API_TOKEN deno test -A` from a shell that has them.
+
 That works only because `normalizeBaseUrl` (`src/config/config.ts`) permits plain http for loopback
 hosts. Tightening it to https-only fails every e2e test with exit 2, far from the change.
 
@@ -38,6 +43,9 @@ hosts. Tightening it to https-only fails every e2e test with exit 2, far from th
 is the single source of truth and must stay identical to the `--allow-*` string in the `dev` task in
 `deno.json`, or the shipped binary behaves differently from `deno run` — a bug that only appears
 after distribution.
+
+No CI: `deno task check` and the suite run locally, and release binaries are built with
+`deno task build:all` and attached to a GitHub release by hand.
 
 ## Code style
 
