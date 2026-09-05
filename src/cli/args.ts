@@ -41,10 +41,16 @@ OPTIONS
       --version        show the version
 
 CONFIGURATION
-  Values are resolved per key: CLI flags, then environment, then config file.
-    JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
-    .jira-fetch.json|.yaml  (searched upward from the working directory)
-    ~/.config/jira-fetch/config.json|.yaml
+  Resolved per key: CLI flags, then environment, then .env, then the config file.
+    JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_FETCH_OUT
+    .env and .env.local           nearest ancestor directory that has either
+    .jira-fetch[.conf].yml|.yaml|.json    searched upward from the working directory
+    jira-fetch.conf.yml|.yaml|.json       same, without the leading dot
+    ~/.config/jira-fetch[.conf].yml|.yaml|.json
+    ~/.jira-fetch.conf.yml|.yaml|.json
+
+  The config file is meant to be committed, so that a project's filters apply to everyone
+  working in it. Your API token is not: keep it in .env.local, the environment, or --token.
 
 OUTPUT
   <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)

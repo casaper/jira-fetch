@@ -5,6 +5,7 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
 import { EXIT, run } from '../src/main.ts';
+import { loadDotenv } from '../src/config/config.ts';
 import type { FiltersConfig } from '../src/config/schema.ts';
 
 const ISSUE = JSON.parse(
@@ -89,6 +90,8 @@ function startFakeJira(): Promise<Fake> {
 interface RunOptions {
   filters?: FiltersConfig;
   allowJql?: boolean;
+  /** Working directory for the run, when a test needs to control what is discovered around it. */
+  cwd?: string;
 }
 
 interface Harness {
@@ -112,19 +115,27 @@ async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
       out,
       requests: fake.requests,
       stdout,
-      runWith: async (args, { filters, allowJql } = {}) => {
+      runWith: async (args, { filters, allowJql, cwd } = {}) => {
         const configPath = join(out, 'config.json');
+        // No `token` in the file on purpose: that is the shape the tool recommends — the config
+        // carries policy, the credential comes from the environment — and a token here would
+        // trip the project-config warning on every test.
         await Deno.writeTextFile(
           configPath,
           JSON.stringify({
             baseUrl: fake.origin,
             email: 'kim@example.com',
-            token: 't',
             ...(allowJql === undefined ? {} : { allowJql }),
             ...(filters ? { filters } : {}),
           }),
         );
-        return await run([...args, '--config', configPath, '--out', out]);
+        // An explicit env seals the run: no `.env` above the checkout, and no exported
+        // JIRA_BASE_URL, can reach it. Without this the suite is at the mercy of the shell it
+        // happens to run in.
+        return await run([...args, '--config', configPath, '--out', out], {
+          env: { JIRA_API_TOKEN: 't' },
+          cwd,
+        });
       },
     });
   } finally {
@@ -256,5 +267,27 @@ Deno.test('usage errors exit 2 before any request is made', async () => {
   await withJira(async ({ runWith, requests }) => {
     assertEquals(await runWith(['not-a-key']), EXIT.usageError);
     assertEquals(requests, []);
+  });
+});
+
+Deno.test('a .env in the working directory cannot reach a sealed run', async () => {
+  await withJira(async ({ requests, runWith }) => {
+    const cwd = await Deno.makeTempDir();
+    try {
+      await Deno.writeTextFile(
+        join(cwd, '.env'),
+        'JIRA_BASE_URL=https://evil.example.com\nJIRA_API_TOKEN=stolen\n',
+      );
+
+      // Not a vacuous test: the file really is where loadDotenv would pick it up.
+      assertEquals((await loadDotenv(cwd)).JIRA_BASE_URL, 'https://evil.example.com');
+
+      assertEquals(await runWith(['DN-1243'], { cwd }), EXIT.ok);
+      // The issue was fetched from the fake, so the .env never overrode the config file's base
+      // URL — had it won, the run would have failed against evil.example.com instead.
+      assert(requests.includes('GET /rest/api/3/issue/DN-1243'));
+    } finally {
+      await Deno.remove(cwd, { recursive: true });
+    }
   });
 });

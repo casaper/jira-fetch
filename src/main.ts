@@ -8,6 +8,7 @@ import {
   ConfigError,
   discoverConfigFile,
   loadConfigFile,
+  loadDotenv,
   resolveConfig,
 } from './config/config.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
@@ -151,7 +152,36 @@ async function fetchOne(
   tally.written++;
 }
 
-export async function run(argv: string[]): Promise<number> {
+/** The environment variables this tool reads. Listed once so `.env` values and the real
+ * environment are merged over exactly the same key set. */
+const ENV_KEYS = ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_FETCH_OUT'] as const;
+
+/** Only the keys that are actually set: spreading an `undefined` over a `.env` value would erase
+ * it, which would silently invert the documented precedence. */
+const readProcessEnv = (): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const key of ENV_KEYS) {
+    const value = Deno.env.get(key);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+};
+
+/**
+ * Everything ambient a run depends on, injectable so the suite can be hermetic.
+ *
+ * This matters more than it looks: `.env` files are a credential source now, so a test that let
+ * the process environment through would pick up whatever `.env` happens to sit above the checkout.
+ */
+export type RunDeps = {
+  /** When given, used **verbatim**: no `.env` file is read and `Deno.env` is not consulted. */
+  env?: Record<string, string | undefined>;
+  cwd?: string;
+  /** Only used to locate the user's own config, and to tell it from a project's. */
+  home?: string;
+};
+
+export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> => {
   let args: Args;
   try {
     args = parseCliArgs(argv);
@@ -174,25 +204,25 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const log = makeLogger(args.verbose);
-  const cwd = Deno.cwd();
+  const cwd = deps.cwd ?? Deno.cwd();
+  // An explicit `env` means "this run is sealed": no .env, and no home directory either, or a
+  // stray ~/.config/jira-fetch.yaml would still leak in through discovery.
+  const home = deps.home ?? (deps.env ? undefined : Deno.env.get('HOME') ?? undefined);
+  const env = deps.env ?? { ...await loadDotenv(cwd), ...readProcessEnv() };
 
   let config: Config;
   try {
     const found = args.config
       ? { path: args.config, data: await loadConfigFile(args.config) }
-      : await discoverConfigFile(cwd, Deno.env.get('HOME') ?? undefined);
+      : await discoverConfigFile(cwd, home);
 
     config = resolveConfig({
       flags: { baseUrl: args.baseUrl, email: args.email, token: args.token, out: args.out },
-      env: {
-        JIRA_BASE_URL: Deno.env.get('JIRA_BASE_URL'),
-        JIRA_EMAIL: Deno.env.get('JIRA_EMAIL'),
-        JIRA_API_TOKEN: Deno.env.get('JIRA_API_TOKEN'),
-        JIRA_FETCH_OUT: Deno.env.get('JIRA_FETCH_OUT'),
-      },
+      env,
       file: found?.data,
       filePath: found?.path,
       cwd,
+      home,
     });
   } catch (cause) {
     if (cause instanceof ConfigError) {
@@ -201,6 +231,8 @@ export async function run(argv: string[]): Promise<number> {
     }
     throw cause;
   }
+
+  for (const warning of config.warnings) console.error(`warning: ${warning}`);
 
   if (args.jql && !config.allowJql) {
     console.error('error: --jql is disabled by this configuration (allowJql: false)');
@@ -249,7 +281,7 @@ export async function run(argv: string[]): Promise<number> {
   if (tally.errors > 0) return EXIT.runtimeError;
   if (tally.excluded > 0) return EXIT.allFiltered;
   return EXIT.ok;
-}
+};
 
 if (import.meta.main) {
   Deno.exit(await run(Deno.args));
