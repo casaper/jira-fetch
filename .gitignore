@@ -2,3 +2,4 @@ dist/
 tmp/
 .env
 .jira-fetch.json
+.env*.local
