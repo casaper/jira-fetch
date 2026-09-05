@@ -59,8 +59,13 @@ CONFIGURATION
     ~/.config/jira-fetch[.conf].yml|.yaml|.json
     ~/.jira-fetch.conf.yml|.yaml|.json
 
-  The config file is meant to be committed, so that a project's filters apply to everyone
-  working in it. Your API token is not: keep it in .env.local, the environment, or --token.
+  The nearest config file found is the only one read; configurations never layer. Commit one
+  to a project and its filters apply to everyone working in that tree. Your API token is not
+  part of that: keep it in .env.local, the environment, or --token.
+
+  Or keep both in ~/.config/jira-fetch.yaml, the token key included, so that nothing about your
+  Jira access lives in the project. A token there raises no warning; chmod 600 the file. That
+  is the setup that matters when the caller is an agent; see MCP SERVER below.
 
   Only the file can set these:
     filters     which tickets are fetched, and which comments end up in the document
@@ -77,7 +82,18 @@ MCP SERVER
 
   Both write into the output directory fixed at startup and return links to what they wrote.
   There is no tool that changes anything in Jira, and none takes a path. The config's filters
-  decide which issues may be fetched; a client cannot override them. See the README.
+  decide which issues may be fetched; a client cannot override them.
+
+  Serving an agent that can also edit the project, start it like this:
+
+    claude mcp add --scope user jira-fetch -- \\
+      jira-fetch mcp --config /home/you/.config/jira-fetch.yaml
+
+  --config skips discovery, so a .jira-fetch.yml appearing in the tree cannot shadow the
+  policy, and --scope user keeps the launch command out of the tree too. Spell the path in
+  full: a spawned process does not expand ~. Put the token in that file and unset
+  JIRA_API_TOKEN: the environment outranks the file, and an exported token is one the
+  agent's own shell can send to Jira without going through this server at all. See the README.
 
 OUTPUT
   <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)

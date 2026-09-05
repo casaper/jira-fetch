@@ -1,10 +1,22 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
 
-# Copy to .jira-fetch.yml and commit it: the filters below then apply to everyone working in
-# this project. Credentials do not belong in here — keep JIRA_API_TOKEN in .env.local (which
-# your .gitignore should cover), in the environment, or pass --token.
+# This file has two homes, and they mean different things.
+#
+# Copied to .jira-fetch.yml and committed, the filters below apply to everyone working in this
+# project. Credentials do not belong in a file you commit — keep JIRA_API_TOKEN in .env.local
+# (which your .gitignore should cover), in the environment, or pass --token.
+#
+# Copied to ~/.config/jira-fetch.yaml, it can carry the token as well, and then nothing about
+# your Jira access lives in the project at all. That is the setup to use when the caller is an
+# agent through `jira-fetch mcp`: point the server at this file with --config <absolute path>,
+# so nothing appearing in the project tree can shadow it, and unset JIRA_API_TOKEN, since the
+# environment outranks this file. `chmod 600` it. See the MCP server section of the README.
 
 baseUrl: https://your-site.atlassian.net
+
+# Only in the home copy, never in a committed one — the tool warns on every run if a config
+# inside a project tree sets this.
+# token: ATATT3xFfGF0...
 
 # Also removes the search_issues tool from `jira-fetch mcp`, so an agent cannot run a query either.
 allowJql: true

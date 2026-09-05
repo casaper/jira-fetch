@@ -409,6 +409,18 @@ so none of them is cosmetic.
   the output contract overwrites unconditionally, so a stub would destroy a real document written
   under a looser config.
 
+**Where the config lives is part of the feature, and the README documents it as such.** The code
+guarantee — filters decide access — holds only if the file that carries them is one the agent does
+not control. Discovery reads the _nearest_ config file and never layers, so an agent that can write
+in the project does not need to edit a committed `.jira-fetch.yml`: creating one with empty filters
+in the directory the server starts from shadows it. `--config <absolute path>` is what resists that,
+because `src/main.ts:125` routes it to `loadConfigFile` and `discoverConfigFile` is never called.
+The recommended deployment is therefore a user-scoped server definition, `--config` at an absolute
+path, and the `token` key in that same home config — since the environment outranks the file, an
+exported `JIRA_API_TOKEN` re-opens the bypass on its own. Do not simplify the README back to
+`claude mcp add jira-fetch -- jira-fetch mcp` as the recommended form; it is offered there as the
+convention-not-boundary case on purpose.
+
 `serveMcp` constructs the transport itself rather than letting `serveStdio` do it. `serveStdio`
 overwrites the transport's `onclose` and does not close it when stdin ends — the process merely runs
 out of work, which `Deno.exit(await run())` turns into "top-level await promise never resolved" and

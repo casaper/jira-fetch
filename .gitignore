@@ -5,7 +5,7 @@ tmp/
 .env*.local
 
 # This repo's own scratch config, not a recommendation: downstream projects are meant to *commit*
-# theirs, so their filters apply to everyone. See .jira-fetch.example.yaml.
+# theirs, or keep one in $HOME. See .jira-fetch.example.yml.
 .jira-fetch.json
 .jira-fetch.yml
 tmp
