@@ -16,6 +16,7 @@ way when adding one; the shipped binaries already embed Deno and V8.
 
 ```sh
 deno task dev DN-1243 --out tmp      # run from source (no `--`: deno forwards it literally)
+deno task mcp                         # the MCP server from source, on stdio
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
 deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
 deno task lint
@@ -164,7 +165,7 @@ refuses to start when they have drifted — the same class of hazard as `PERMISS
 ## Layout
 
 ```
-src/main.ts             orchestration; owns the exit codes
+src/main.ts             orchestration; owns the exit codes and the mode dispatch
 src/cli/args.ts         flag parsing and --help
 src/config/schema.ts    Zod schemas — the single source of truth (see below)
 src/config/config.ts    flag/env/file resolution, per key
@@ -172,13 +173,16 @@ src/jira/client.ts      auth, retry, and every REST call
 src/filter/rules.ts     compiles validated rules into their runtime form
 src/filter/evaluate.ts  the three filter stages
 src/adf/to_markdown.ts  ADF -> Markdown
+src/fetch/session.ts    the per-issue pipeline, shared by the CLI and the MCP server
+src/mcp/server.ts       the MCP server: two read tools and nothing else
 src/assets/download.ts  filename sanitising, the attachment manifest, downloads
 src/document/           frontmatter + document assembly
 scripts/                build matrix, JSON Schema generation, commit lint, changelog, release
 spec/                   vendored Atlassian schemas, pinned (see below)
 ```
 
-Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`.
+Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`, and the fake Jira both
+end-to-end suites drive is `test/fake_jira.ts`.
 
 ## Configuration is discovered by closeness, and meant to be committed
 
@@ -339,6 +343,50 @@ Filename sanitising therefore has exactly one home (`sanitizeFilename` in `src/a
 If the converter and the downloader ever disagreed on a name, the relative links would break
 silently. Collisions — two attachments both called `image.png` — are resolved by folding the
 attachment id into the stem.
+
+## The MCP server
+
+`jira-fetch mcp` (`src/mcp/server.ts`) exists for one reason: **an agent's access to Jira is decided
+by the config file, not by anything it can be told or talked out of.** Every rule below serves that,
+so none of them is cosmetic.
+
+- **stdout is the protocol.** One stray line corrupts the JSON-RPC stream and the session dies far
+  from its cause. `src/fetch/session.ts` is shared with the CLI and writes nothing to stdout —
+  keep it that way; `src/main.ts` additionally replaces `console.log` with a **throw** in this mode,
+  deliberately not a redirect to stderr, because a redirect would launder a leak into something
+  `test/mcp_test.ts`'s subprocess purity check cannot see.
+- **Nothing about a denied issue reaches the client.** `Outcome.reason` is
+  `matched exclude rule ${JSON.stringify(rule)}` — the string _is_ the serialised policy — and a
+  stage-2 denial is decided with the whole payload in hand. `record()` reads `key` and `status` and
+  nothing else; that is why the formatting lives in one function.
+- **Denied, 404 and 403 are one message**, `UNAVAILABLE`. Answering differently would let a client
+  map the deny-list by probing keys and watching which reply comes back. Jira's own API conflates
+  them ("Issue does not exist or you do not have permission to see it"), so this follows upstream
+  rather than inventing something weaker. Do not "improve" it into a more helpful error.
+- **`allowJql: false` un-registers `search_issues`** rather than refusing it when called. Absent
+  from `tools/list` is the same kind of guarantee as having no write tool at all.
+- **Tool annotations are hints, not the boundary.** `readOnlyHint` is `false` and that is honest:
+  these tools are read-only against _Jira_ but they write files. The boundary is that no write tool
+  is registered. Do not set it to `true`.
+- **No tool takes a path**, and the output directory is fixed at startup. A path parameter would
+  hand back exactly the control this mode exists to remove.
+- **Keys are shape-checked** against `ISSUE_KEY` from `src/cli/args.ts`, because an unvalidated key
+  is interpolated straight into `GET /rest/api/3/issue/{key}`.
+- **A denied issue gets no file.** An earlier design wrote a stub `<KEY>.md`; it was dropped because
+  the output contract overwrites unconditionally, so a stub would destroy a real document written
+  under a looser config.
+
+`serveMcp` constructs the transport itself rather than letting `serveStdio` do it. `serveStdio`
+overwrites the transport's `onclose` and does not close it when stdin ends — the process merely runs
+out of work, which `Deno.exit(await run())` turns into "top-level await promise never resolved" and
+a non-zero exit. Owning the stream gives one honest signal for "the client went away". The server
+also stops the moment stdin ends, so a test must hold the pipe open until its replies arrive.
+
+`npm:@modelcontextprotocol/server` (v2), not `@modelcontextprotocol/sdk` (v1): two transitive
+dependencies against express, hono, jose, ajv and cross-spawn for HTTP transports this never uses,
+and — the deciding point — **it needs no permission beyond the four already baked in**. `deno
+compile` bakes permissions at build time and there is no per-mode grant, so anything this mode
+needed the CLI binary would carry too.
 
 ## Jira Cloud API notes
 

@@ -86,6 +86,7 @@ is left alone.
 ```
 jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
 jira-fetch --jql "<JQL>"           fetch every issue matching a query
+jira-fetch mcp                     serve the same pipeline over MCP (see below)
 
   -o, --out <dir>      output directory (default: current directory)
   -c, --config <path>  config file to use, skipping discovery
@@ -176,7 +177,80 @@ on disk.
 
 Setting `allowJql: false` in a config shipped alongside the binary makes `--jql` fail with exit
 code 2 — useful when handing the tool to someone who should only fetch tickets by key. It gates the
-flag only, not the requests the tool makes on its own.
+flag only, not the requests the tool makes on its own. It also removes the `search_issues` tool from
+the MCP server, so an agent cannot run a query either.
+
+## MCP server
+
+`jira-fetch mcp` serves the same pipeline over the [Model Context Protocol](https://modelcontextprotocol.io) on stdin/stdout, so an agent — Claude Code, or any other
+MCP client — can read Jira through this tool.
+
+The reason to want that is not convenience. It is that **the agent's access is decided by a config
+file, not by instructions you give it**:
+
+- **It cannot write to Jira, because there is no tool that writes.** Not "the agent was told not
+  to" — the capability is absent from `tools/list`, so there is nothing to talk it into.
+- **The filters above decide which issues it may fetch**, exactly as they do at the terminal. An
+  agent cannot see them, override them, or pass anything that reaches past them.
+- **JQL is not a way around them.** A query only chooses candidate keys; each key then goes through
+  the same two filter stages as a key you typed yourself. Issues the config denies are never
+  fetched, whatever query found them.
+
+That is a stronger guarantee than a prompt, and cheaper than minting a separate read-only Atlassian
+token for every class of ticket you want to fence off.
+
+### Setting it up with Claude Code
+
+```sh
+claude mcp add jira-fetch -- jira-fetch mcp
+```
+
+Or commit a `.mcp.json` next to your config so everyone on the project gets the same server:
+
+```json
+{
+  "mcpServers": {
+    "jira-fetch": {
+      "command": "jira-fetch",
+      "args": ["mcp", "--out", "docs/jira"]
+    }
+  }
+}
+```
+
+Credentials are resolved exactly as they are for the CLI, so `JIRA_API_TOKEN` in `.env.local` is
+picked up and does not belong in `.mcp.json`. The server is started in the project directory, so a
+committed `.jira-fetch.yml` beside it is the policy that applies — run once with `-v` to see which
+config file was found, on stderr.
+
+### The tools
+
+| Tool            | What it does                                                             |
+| --------------- | ------------------------------------------------------------------------ |
+| `fetch_issues`  | Writes a document for each issue key given, up to 50                     |
+| `search_issues` | The same, for each issue a JQL query matches, up to `limit` (default 25) |
+
+`search_issues` is **not offered at all** when the config sets `allowJql: false` — it is missing
+from `tools/list`, rather than present and refusing.
+
+Both write into the output directory fixed when the server starts, and return a link to each
+document. **No tool takes a path**: the agent chooses which issues it wants, never where bytes
+land. No ticket content travels through the protocol — the agent reads the files, which is what
+makes "it only gets what the config allowed" literal.
+
+An issue the config denies is reported as `not available (no such issue, or not permitted by this
+server configuration)` and **no file is written for it**. That is the same sentence a nonexistent
+issue gets, on purpose: answering differently would let an agent map your deny-list by asking for
+keys one at a time and watching which answer comes back. Jira's own API already conflates the two.
+
+### What this does and does not guarantee
+
+The guarantee is about **what the server will fetch**, not about what an agent can read. Documents
+already sitting in the output directory are readable with its ordinary file tools, and filters are
+evaluated at fetch time — tightening them later does not go back and remove documents already
+written. Since the MCP server and the CLI share one `filters` block, the CLI cannot have written
+something the server would deny under the same config; the gap is only ever a config that has since
+been tightened. If that matters to you, point `--out` at a directory you can clear.
 
 ## Development
 
@@ -188,6 +262,7 @@ deno task test       # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"
 deno task schema     # regenerate schema/jira-fetch.schema.json
 deno task types      # regenerate src/jira/schema_types.ts from the vendored specs
+deno task mcp        # run the MCP server from source
 deno task build      # host binary into dist/
 deno task build:all  # all six release targets
 
@@ -207,7 +282,8 @@ are checked by `.githooks/commit-msg`; `deno task hooks` is what turns that on i
 [CHANGELOG.md](CHANGELOG.md) is generated from those subjects.
 
 The test suite needs no credentials and no network: `test/e2e_test.ts` runs the whole CLI against a
-fake Jira on localhost.
+fake Jira on localhost (`test/fake_jira.ts`), and `test/mcp_test.ts` drives the MCP server against
+the same one.
 
 ## License
 

@@ -6,8 +6,12 @@
 
 baseUrl: https://your-site.atlassian.net
 
+# Also removes the search_issues tool from `jira-fetch mcp`, so an agent cannot run a query either.
 allowJql: true
 
+# These are what an agent gets, too. `jira-fetch mcp` serves the same pipeline over MCP and runs
+# the same two filter stages, so a ticket excluded here is one it cannot fetch — by configuration
+# rather than by instruction. See the MCP server section of the README.
 filters:
   exclude:
     - project: [SUP]
