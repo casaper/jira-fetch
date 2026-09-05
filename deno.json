@@ -16,6 +16,7 @@
     "commitlint": "deno run -A scripts/commit_lint.ts",
     "changelog": "deno run -A scripts/changelog.ts",
     "release": "deno run -A scripts/release.ts",
+    "publish": "deno run -A scripts/publish.ts",
     "build": "deno run -A scripts/build_all.ts --host",
     "build:all": "deno run -A scripts/build_all.ts"
   },

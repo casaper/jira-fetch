@@ -193,7 +193,8 @@ deno task build:all  # all six release targets
 
 deno task hooks      # once per clone: enable the Conventional Commits hook
 deno task changelog  # regenerate CHANGELOG.md from the commit history
-deno task release patch   # bump, changelog, commit, tag
+deno task release patch   # bump, changelog, commit, tag, push, build, publish
+deno task publish         # just the publish half, if a cross-compile failed
 ```
 
 The Jira and ADF types in `src/jira/schema_types.ts` are generated from Atlassian's own published

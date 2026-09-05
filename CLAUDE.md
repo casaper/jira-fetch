@@ -31,7 +31,9 @@ deno task build:all                   # all six release targets
 deno task hooks                       # once per clone: enable the commit-msg hook
 deno task commitlint --from <rev>     # lint the commit messages after <rev>
 deno task changelog                   # regenerate CHANGELOG.md from the history
-deno task release patch               # bump + changelog + commit + tag
+deno task release patch               # bump, changelog, commit, tag, push, build, publish
+deno task release patch --no-publish  # stop at the tag
+deno task publish                     # push, build:all, checksum and attach to a GitHub release
 ```
 
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
@@ -61,8 +63,8 @@ is the single source of truth and must stay identical to the `--allow-*` string 
 `deno.json`, or the shipped binary behaves differently from `deno run` — a bug that only appears
 after distribution.
 
-No CI: `deno task check` and the suite run locally, and release binaries are built with
-`deno task build:all` and attached to a GitHub release by hand.
+No CI: `deno task check` and the suite run locally. Release binaries are cross-compiled and
+attached to a GitHub release by `deno task publish`, from a developer's machine — see Releases.
 
 ## Code style
 
@@ -128,8 +130,27 @@ reason `deno task hooks` is one line — husky exists to run that line from npm'
 ## Releases
 
 `deno task release <patch|minor|major>` (or `--set x.y.z`) bumps the version, regenerates
-`CHANGELOG.md`, commits `chore(release): vX.Y.Z` and creates the annotated tag. It refuses a dirty
-tree and runs `deno task check` before committing. Pushing and `deno task build:all` stay manual.
+`CHANGELOG.md`, commits `chore(release): vX.Y.Z`, creates the annotated tag — and then pushes,
+cross-compiles and publishes. It refuses a dirty tree and runs `deno task check` before committing.
+`--no-publish` stops at the tag.
+
+**Publishing is `scripts/publish.ts`, and it is a task of its own on purpose.** Cross-compiling six
+targets is the step most likely to fail, and when it does the fix has to be `deno task publish`
+again rather than a bumped, tagged version with nothing behind it. So every step is idempotent up
+to `gh release create`, which is the one thing that refuses to happen twice — it fails when a
+release for the tag already exists rather than adding to it.
+
+Its preflight runs before anything leaves the machine: `gh` installed and authenticated, clean
+tree, the tag pointing at `HEAD`, no existing release, and a `CHANGELOG.md` section for the version
+(otherwise the release notes would be empty, which means `release.ts` did not make this tag). The
+`gh` half of that is exported as `assertCanPublish` and called by `release.ts` _before_ it bumps
+anything, so a missing `gh` never leaves a tag to unpick.
+
+Release notes are the changelog section plus an install block built from `TARGETS`, so the platform
+table cannot drift from what was compiled. That block carries the `xattr -d com.apple.quarantine`
+line: **the macOS binaries are unsigned and unnotarised**, so Gatekeeper refuses to open them
+otherwise. `SHA256SUMS` is digested in Deno rather than by shelling out to `shasum`, which is not
+on every platform a release might be cut from.
 
 `CHANGELOG.md` is generated, never hand-edited — a careless subject line becomes a careless
 changelog entry. Non-conventional subjects are not silently dropped; they collect under "Other".
