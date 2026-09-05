@@ -111,9 +111,9 @@ flag only, not the requests the tool makes on its own.
 ## Development
 
 ```sh
-deno task check      # typecheck + verify the committed JSON Schema is current
-deno lint
-deno fmt
+deno task check      # typecheck + lint + fmt --check + JSON Schema freshness
+deno task lint
+deno task fmt
 deno task test       # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"
 deno task schema     # regenerate schema/jira-fetch.schema.json
