@@ -219,9 +219,12 @@ Or commit a `.mcp.json` next to your config so everyone on the project gets the 
 ```
 
 Credentials are resolved exactly as they are for the CLI, so `JIRA_API_TOKEN` in `.env.local` is
-picked up and does not belong in `.mcp.json`. The server is started in the project directory, so a
-committed `.jira-fetch.yml` beside it is the policy that applies — run once with `-v` to see which
-config file was found, on stderr.
+picked up and does not belong in `.mcp.json`. Config discovery walks up from the directory the
+server is started in, which for a project-scoped `.mcp.json` is the project itself — so a committed
+`.jira-fetch.yml` beside it is the policy that applies. **Check that once**: `-v` prints the config
+file it found on stderr, and if it is not the one you expect, pass `--config` explicitly in `args`.
+The whole guarantee rests on the right file being loaded, so it is worth a minute rather than an
+assumption.
 
 ### The tools
 
