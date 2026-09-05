@@ -1,0 +1,131 @@
+{
+  "id": "10234",
+  "key": "DN-1243",
+  "fields": {
+    "summary": "Spike: evaluate the export pipeline",
+    "created": "2026-08-01T09:12:00.000+0200",
+    "updated": "2026-08-14T16:40:11.000+0200",
+    "labels": ["backend", "wontfix"],
+    "issuetype": { "name": "Task", "subtask": false },
+    "status": { "name": "In Progress" },
+    "priority": { "name": "Medium" },
+    "resolution": null,
+    "project": { "key": "DN", "name": "Datavault" },
+    "reporter": null,
+    "assignee": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "emailAddress": "kim@example.com",
+      "displayName": "Kim Rivera"
+    },
+    "creator": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "displayName": "Kim Rivera"
+    },
+    "components": [{ "name": "api" }, { "name": "exporter" }],
+    "fixVersions": [{ "name": "2026.9" }],
+    "customfield_10101": { "value": "Platform" },
+    "parent": {
+      "id": "10200",
+      "key": "DN-1200",
+      "fields": {
+        "summary": "Export epic",
+        "issuetype": { "name": "Epic" },
+        "status": { "name": "In Progress" }
+      }
+    },
+    "subtasks": [
+      {
+        "id": "10240",
+        "key": "DN-1244",
+        "fields": {
+          "summary": "Write the exporter",
+          "issuetype": { "name": "Sub-task" },
+          "status": { "name": "To Do" }
+        }
+      }
+    ],
+    "attachment": [
+      {
+        "id": "20001",
+        "filename": "screenshot 01.png",
+        "content": "https://example.atlassian.net/rest/api/3/attachment/content/20001",
+        "mimeType": "image/png",
+        "size": 4096,
+        "created": "2026-08-02T10:00:00.000+0200"
+      },
+      {
+        "id": "20002",
+        "filename": "screenshot 01.png",
+        "content": "https://example.atlassian.net/rest/api/3/attachment/content/20002",
+        "mimeType": "image/png",
+        "size": 8192,
+        "created": "2026-08-03T10:00:00.000+0200"
+      }
+    ],
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "The exporter needs " },
+            { "type": "text", "text": "streaming", "marks": [{ "type": "strong" }] },
+            { "type": "text", "text": " output. See " },
+            {
+              "type": "text",
+              "text": "the RFC",
+              "marks": [{ "type": "link", "attrs": { "href": "https://example.com/rfc" } }]
+            },
+            { "type": "text", "text": "." }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                { "type": "paragraph", "content": [{ "type": "text", "text": "First" }] }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                { "type": "paragraph", "content": [{ "type": "text", "text": "Second" }] },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    {
+                      "type": "listItem",
+                      "content": [
+                        { "type": "paragraph", "content": [{ "type": "text", "text": "Nested" }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": { "language": "typescript" },
+          "content": [{ "type": "text", "text": "const x = 1;" }]
+        },
+        {
+          "type": "mediaSingle",
+          "content": [
+            { "type": "media", "attrs": { "id": "20001", "type": "file", "alt": "the screen" } }
+          ]
+        },
+        {
+          "type": "wildUnknownNodeFromSomeApp",
+          "content": [
+            { "type": "paragraph", "content": [{ "type": "text", "text": "still here" }] }
+          ]
+        }
+      ]
+    }
+  }
+}
