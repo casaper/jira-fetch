@@ -65,22 +65,33 @@ const emptyReport = (): Report => ({ links: [], lines: [], written: 0 });
  * and a stage-2 denial was decided with the whole issue payload in hand. Neither is in scope here,
  * which is the point of doing the formatting in one place. */
 const record = (outcome: Outcome, into: Report): void => {
-  if (outcome.status === 'denied') {
-    into.lines.push(`${outcome.key}  ${UNAVAILABLE}`);
-    return;
-  }
-  // `dryRun` cannot occur: the server never constructs a dry-run session.
-  if (outcome.status === 'written') {
-    into.links.push({
-      type: 'resource_link',
-      uri: toFileUrl(outcome.path).href,
-      name: `${outcome.key}.md`,
-      mimeType: 'text/markdown',
-    });
-    into.lines.push(
-      `${outcome.key}  written${outcome.assets > 0 ? ` (+${outcome.assets} attachment(s))` : ''}`,
-    );
-    into.written++;
+  switch (outcome.status) {
+    case 'denied':
+      into.lines.push(`${outcome.key}  ${UNAVAILABLE}`);
+      return;
+    case 'written': {
+      into.links.push({
+        type: 'resource_link',
+        uri: toFileUrl(outcome.path).href,
+        name: `${outcome.key}.md`,
+        mimeType: 'text/markdown',
+      });
+      // `assets` counts what landed, and a failure is said out loud rather than left for the
+      // agent to discover as a broken relative link it cannot see is broken.
+      const notes = [
+        outcome.assets > 0 ? `+${outcome.assets} attachment(s)` : '',
+        outcome.failedAssets > 0 ? `${outcome.failedAssets} attachment(s) failed to download` : '',
+      ].filter((note) => note !== '');
+      into.lines.push(
+        `${outcome.key}  written${notes.length > 0 ? ` (${notes.join(', ')})` : ''}`,
+      );
+      into.written++;
+      return;
+    }
+    case 'dryRun':
+      // Unreachable: the server never constructs a dry-run session. Stated as a throw rather than
+      // a comment so the invariant fails loudly instead of dropping a key from the report.
+      throw new Error(`unreachable: a dry-run outcome reached the MCP server (${outcome.key})`);
   }
 };
 
@@ -173,15 +184,22 @@ export const createMcpServer = (session: FetchSession, config: Config): McpServe
     }, async ({ jql, limit }) => {
       const report = emptyReport();
       let seen = 0;
+      // Tracked rather than inferred from `seen === limit`: a query with exactly `limit` matches
+      // ends because it ran out, and calling that "more may match" would be a lie at the one
+      // boundary this line exists to get right.
+      let truncated = false;
       for await (const key of session.keys(jql)) {
-        if (seen === limit) break;
+        if (seen === limit) {
+          truncated = true;
+          break;
+        }
         seen++;
         await attempt(session, key, report);
       }
       // The limit counts issues *considered*, not documents written, so a query whose first N
       // hits are all unavailable writes nothing. Saying which ending this was is what lets a
       // client tell "you are being filtered" from "that is all there is".
-      const ending = seen === limit
+      const ending = truncated
         ? `${seen} issue(s) considered (limit reached; more may match)`
         : `${seen} issue(s) considered (query exhausted)`;
       return finish(report, `${report.written} written. ${ending}`);

@@ -40,13 +40,14 @@ interface Client {
 interface Options {
   filters?: FiltersConfig;
   allowJql?: boolean;
+  attachmentsFail?: boolean;
 }
 
 async function withMcp(
   options: Options,
   fn: (ctx: { client: Client; out: string; requests: string[] }) => Promise<void>,
 ): Promise<void> {
-  const fake = await startFakeJira();
+  const fake = await startFakeJira({ attachmentsFail: options.attachmentsFail });
   const outDir = await Deno.makeTempDir();
 
   const config: Config = {
@@ -198,11 +199,30 @@ Deno.test('a pre-fetch denial inside a JQL result never requests the issue', asy
 
 Deno.test('a search says whether it was cut short or ran out', async () => {
   await withMcp({}, async ({ client }) => {
+    // Three matches for `wide`.
     await client.call('search_issues', { jql: 'wide', limit: 2 });
     assertStringIncludes(client.out, 'limit reached; more may match');
 
     await client.call('search_issues', { jql: 'wide', limit: 50 });
     assertStringIncludes(client.out, 'query exhausted');
+
+    // The boundary, and the reason this is tracked rather than inferred from a count: a query
+    // with exactly `limit` matches ran out, and saying "more may match" here would be a lie in
+    // the one line an agent uses to decide whether to look further.
+    await client.call('search_issues', { jql: 'wide', limit: 3 });
+    assertStringIncludes(client.out, 'query exhausted');
+  });
+});
+
+Deno.test('an attachment that failed to download is said out loud', async () => {
+  await withMcp({ attachmentsFail: true }, async ({ client }) => {
+    await client.call('fetch_issues', { keys: ['DN-1243'] });
+
+    // The document still exists and is worth having; what must not happen is the agent being
+    // told about attachments that are not there and following relative links into nothing.
+    assertStringIncludes(client.out, 'DN-1243  written');
+    assertStringIncludes(client.out, '2 attachment(s) failed to download');
+    assertFalse(client.out.includes('+2 attachment(s)'));
   });
 });
 

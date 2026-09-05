@@ -21,7 +21,17 @@ import type { IssueRef } from '../jira/types.ts';
  * serialised policy. There is deliberately no `stage` field either: a caller that cannot tell a
  * pre-fetch denial from a payload denial cannot leak the difference, and none needs to. */
 export type Outcome =
-  | { status: 'written'; key: string; path: string; assets: number; skippedComments: number }
+  | {
+    status: 'written';
+    key: string;
+    path: string;
+    /** Attachments that actually landed on disk, not the number the issue listed. A caller that
+     * reported the planned count would tell an agent to follow links to files that are not
+     * there — the CLI's operator sees the failure on stderr, an agent never does. */
+    assets: number;
+    failedAssets: number;
+    skippedComments: number;
+  }
   | { status: 'dryRun'; key: string; path: string; assets: number }
   | { status: 'denied'; key: string; reason: string };
 
@@ -120,6 +130,8 @@ export const createSession = async (opts: SessionOptions): Promise<FetchSession>
     if (opts.dryRun) return { status: 'dryRun', key: issue.key, path, assets: manifest.size };
 
     await Deno.mkdir(config.outDir, { recursive: true });
+    let downloaded = 0;
+    let failedAssets = 0;
     if (manifest.size > 0) {
       const result = await downloadAssets(
         client,
@@ -127,6 +139,8 @@ export const createSession = async (opts: SessionOptions): Promise<FetchSession>
         join(config.outDir, assetDirName(issue.key)),
         log,
       );
+      downloaded = result.downloaded;
+      failedAssets = result.failures.length;
       // stderr, so this is safe in both modes.
       for (const failure of result.failures) {
         console.error(`  ${key}: attachment ${failure.filename} failed — ${failure.error}`);
@@ -134,7 +148,14 @@ export const createSession = async (opts: SessionOptions): Promise<FetchSession>
     }
 
     await Deno.writeTextFile(path, markdown);
-    return { status: 'written', key: issue.key, path, assets: manifest.size, skippedComments };
+    return {
+      status: 'written',
+      key: issue.key,
+      path,
+      assets: downloaded,
+      failedAssets,
+      skippedComments,
+    };
   };
 
   return { fetch, keys: (jql: string) => client.searchIssueKeys(jql) };

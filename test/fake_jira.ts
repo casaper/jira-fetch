@@ -18,7 +18,13 @@ export interface Fake {
   stop: () => Promise<void>;
 }
 
-export function startFakeJira(): Promise<Fake> {
+/** Knobs a test needs the *server* to have, as against the run driving it. */
+export interface FakeOptions {
+  /** Attachment requests fail, so a caller can see how a partial fetch is reported. */
+  attachmentsFail?: boolean;
+}
+
+export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
   const requests: string[] = [];
   const controller = new AbortController();
 
@@ -59,6 +65,7 @@ export function startFakeJira(): Promise<Fake> {
       return Response.json({ id: '1', key: 'SUP-9', fields: { summary: 'Support' } });
     }
     if (url.pathname.startsWith('/attachment/')) {
+      if (options.attachmentsFail) return new Response('gone', { status: 404 });
       return new Response(PNG, { headers: { 'content-type': 'image/png' } });
     }
     if (url.pathname === '/rest/api/3/search/jql') {
