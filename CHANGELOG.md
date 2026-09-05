@@ -6,6 +6,34 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.4.0 — 2026-09-05
+
+### Breaking changes
+
+- refuse a field name this site cannot resolve ([d8d7dec](https://github.com/casaper/jira-fetch/commit/d8d7dec9a8d613ffb6ffd94fad46b75a3db9a143))
+
+### Features
+
+- **filter:** refuse a field name this site cannot resolve ([d8d7dec](https://github.com/casaper/jira-fetch/commit/d8d7dec9a8d613ffb6ffd94fad46b75a3db9a143))
+- **mcp:** serve the fetch pipeline as a read-only MCP server ([98ef375](https://github.com/casaper/jira-fetch/commit/98ef37588448ff49eb81406fb868602e09d5e929))
+
+### Bug Fixes
+
+- **mcp:** report what a fetch actually produced, not what it planned ([b25a556](https://github.com/casaper/jira-fetch/commit/b25a55625604690c5c6c1bc9efdbac9143aa971d))
+
+### Refactoring
+
+- **fetch:** extract the per-issue pipeline into a session ([dbc6be3](https://github.com/casaper/jira-fetch/commit/dbc6be357579d1daa687a628f7e4684d09cec610))
+
+### Documentation
+
+- **mcp:** tell the reader to check which config was loaded ([1e29bed](https://github.com/casaper/jira-fetch/commit/1e29bed85437a2b8c15177a2404b07faeecb0a7d))
+- **mcp:** document the server and Claude Code setup ([ae0f8e7](https://github.com/casaper/jira-fetch/commit/ae0f8e75a11dec40a3927b26c8bd71b42c0997ac))
+
+### Tests
+
+- **filter:** cover the custom-field path against the real site ([32f66fc](https://github.com/casaper/jira-fetch/commit/32f66fc647c1363536395271e4ead22bfb6caa67))
+
 ## 0.3.2 — 2026-09-05
 
 ### Breaking changes
