@@ -69,6 +69,10 @@ type Facts = {
   assignee: string | null;
   summary: string;
   attachments: number;
+  /** The `Team` custom field (customfield_10001), read as Jira sends it: an object with a `name`.
+   * The only *custom* field in the table — everything else here is built in, and without it the
+   * live run would never exercise name resolution against `GET /rest/api/3/field`. */
+  team: string | null;
 };
 
 const factsOf = (issue: JiraIssue): Facts => ({
@@ -82,7 +86,13 @@ const factsOf = (issue: JiraIssue): Facts => ({
   assignee: issue.fields.assignee?.displayName ?? null,
   summary: issue.fields.summary ?? '',
   attachments: (issue.fields.attachment ?? []).length,
+  team: teamName(issue.fields.customfield_10001),
 });
+
+const teamName = (raw: unknown): string | null =>
+  typeof raw === 'object' && raw !== null && typeof (raw as { name?: unknown }).name === 'string'
+    ? (raw as { name: string }).name
+    : null;
 
 /** A rule as the oracle understands it: the same shape as `TicketRule`, read literally.
  *
@@ -95,6 +105,7 @@ const FIELD_FACTS: Record<string, (f: Facts) => string[]> = {
   'issue type': (f) => (f.type === null ? [] : [f.type]),
   'components': (f) => f.components,
   'labels': (f) => f.labels,
+  'team': (f) => (f.team === null ? [] : [f.team]),
 };
 
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -173,6 +184,12 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'deny-unassigned', filters: { exclude: [{ assignee: [null] }] } },
   {
+    // The custom-field path: "Team" has to be resolved through GET /rest/api/3/field to
+    // customfield_10001, and its value is an object Jira answers with, not a string.
+    name: 'deny-custom-field-team',
+    filters: { exclude: [{ field: { Team: ['Backend'] } }] },
+  },
+  {
     // Matches DN-1333 ("Auto. Regressiontest: ...") and DG-4242 ("gRPC Server - ..."), so the
     // scenario is not vacuous — a regex matching nothing passes trivially and proves only that
     // the run happened. The `i` flag is load-bearing for the second: the summary says "gRPC".
@@ -180,16 +197,28 @@ const SCENARIOS: Scenario[] = [
     filters: { exclude: [{ title: { matches: '^(auto\\.|grpc)', flags: 'i' } }] },
   },
   {
-    // The same pattern without the flag, to prove the flag is what does the work rather than the
-    // engine lower-casing summaries behind the scenes.
+    // The same two tickets, written in the casing the summaries actually use and with no flag.
+    // Dropping the same pair is what shows the `i` above is doing the work rather than the engine
+    // lower-casing summaries behind the scenes — a scenario that kept everything could not tell
+    // that apart from title predicates being broken outright.
     name: 'deny-title-case-sensitive',
-    filters: { exclude: [{ title: { matches: '^(auto\\.|grpc)' } }] },
+    filters: { exclude: [{ title: { matches: '^(Auto\\.|gRPC)' } }] },
   },
 
   // --- allow only ---
   { name: 'allow-project', filters: { include: [{ project: ['DN'] }] } },
   { name: 'allow-type', filters: { include: [{ field: { 'Issue Type': ['Bug', 'Story'] } }] } },
   { name: 'allow-label', filters: { include: [{ labels: ['ai-gen-ticket', 'security'] }] } },
+  {
+    name: 'allow-team',
+    filters: { include: [{ field: { Team: ['Frontend'] } }] },
+  },
+  {
+    // Most of the corpus has no Team at all, so `null` — "absent" — is the only way to select
+    // them. That the two partition the corpus is the property worth having.
+    name: 'allow-team-absent',
+    filters: { include: [{ field: { Team: [null] } }] },
+  },
   {
     name: 'allow-two-rules-or',
     filters: { include: [{ project: ['DV'] }, { labels: ['tech-debt'] }] },
@@ -306,6 +335,7 @@ const run = async (): Promise<number> => {
   for (const f of facts) {
     console.log(
       `  ${f.key.padEnd(9)} ${(f.type ?? '-').padEnd(12)} ${(f.status ?? '-').padEnd(24)}` +
+        ` team=${f.team ?? '-'}`.padEnd(16) +
         ` labels=${f.labels.join(',') || '-'}`.padEnd(46) +
         ` components=${f.components.join(',') || '-'}`.padEnd(42) +
         ` assignee=${f.assignee ?? 'NONE'}`,

@@ -20,6 +20,12 @@ Jira did not have. Images and files from both the
 description and the comments are downloaded next to it and linked relatively, so the document stays
 readable offline and survives being moved with its asset directory.
 
+Every attachment is downloaded, but only the ones actually embedded in the description or a comment
+get a link in the body — Jira's attachment panel holds files nobody ever referenced, and there is
+no place in the text to put them. Those still appear in the frontmatter's `assets` list, which is
+the complete index of what was fetched. So an `assets` entry with no matching link in the body is
+an attachment nobody embedded, not a broken link.
+
 ## Install
 
 Grab the binary for your platform from the release artifacts — it is self-contained and needs no
