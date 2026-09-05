@@ -6,6 +6,18 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.3.2 — 2026-09-05
+
+### Breaking changes
+
+- shorten comment heading timestamps ([543348a](https://github.com/casaper/jira-fetch/commit/543348a3ab7dd77f3a3ae5083c65182885ec5e70))
+- list assets as paths rather than records ([50f35a4](https://github.com/casaper/jira-fetch/commit/50f35a429e573f305b82c96f4601684bbc331650))
+
+### Features
+
+- **document:** shorten comment heading timestamps ([543348a](https://github.com/casaper/jira-fetch/commit/543348a3ab7dd77f3a3ae5083c65182885ec5e70))
+- **document:** list assets as paths rather than records ([50f35a4](https://github.com/casaper/jira-fetch/commit/50f35a429e573f305b82c96f4601684bbc331650))
+
 ## 0.3.1 — 2026-09-05
 
 ### Features
