@@ -6,6 +6,12 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.3.1 — 2026-09-05
+
+### Features
+
+- **scripts:** publish the GitHub release from the release task ([65f7169](https://github.com/casaper/jira-fetch/commit/65f716983380880694bccb7c780cbce8f2d5ce0a))
+
 ## 0.3.0 — 2026-09-05
 
 ### Breaking changes
