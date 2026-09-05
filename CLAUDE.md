@@ -9,11 +9,15 @@ A Deno CLI that fetches Jira **Cloud** issues into Markdown files with YAML fron
 attachments. One or more issue keys, or a JQL query. Shipped as a self-contained binary for macOS,
 Linux and Windows. See README.md for user-facing docs.
 
+Licensed MIT (`deno.json` carries `"license"`), and every dependency is permissive — keep it that
+way when adding one; the shipped binaries already embed Deno and V8.
+
 ## Commands
 
 ```sh
 deno task dev -- DN-1243 --out tmp   # run from source
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
+deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
 deno task lint
 deno task fmt
 deno task test                        # or: deno test -A
@@ -39,7 +43,8 @@ after distribution.
 
 `deno lint` and `deno fmt` are the whole toolchain — no eslint, no prettier, which is the Deno
 norm. `deno task check` runs typecheck, lint, `fmt --check` and the JSON Schema freshness check, so
-it is the one command that has to pass.
+it is the one command that has to pass — but it typechecks `src/` and `scripts/` only, so a change
+touching test types needs `deno check test/` too.
 
 Formatting is settled by `deno.json`'s `fmt` block plus `.editorconfig` (which `deno fmt` reads as
 well): 2-space indent, LF, 100 columns, semicolons, **single quotes**, and `proseWrap: preserve` so
@@ -101,6 +106,14 @@ Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`.
 
 Adding a config option means editing the Zod schema and re-running `deno task schema` — nothing else
 declares config shape.
+
+Types that mirror config keys derive from `ConfigFile` at the type level rather than restating it:
+`Config` and `ResolveOptions` (`src/config/config.ts`) and `Args` (`src/cli/args.ts`) use
+`Pick`/`Required`/`NonNullable`, so renaming a schema key is a compile error at each. To confirm a
+derivation actually bites, rename a key in `schema.ts`, check that every site fails, and revert.
+`ClientOptions` (`src/jira/client.ts`) keeps its literal `baseUrl`/`email`/`token` **on purpose** —
+Basic auth needs those three because it is Basic auth, and deriving them would make `jira/` depend
+on `config/`.
 
 The one thing that cannot be inferred is `CompiledTicketRule` in `src/filter/rules.ts`: it holds
 `Set` and `RegExp` values, which have no JSON Schema representation. It still takes its **key set**
