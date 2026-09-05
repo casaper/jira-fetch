@@ -60,7 +60,7 @@ Two rules need a word of warning:
 - **`no-boolean-literal-for-arguments`** is why tests use `assert(x)` / `assertFalse(x)` rather
   than `assertEquals(x, true)`. That reads better anyway.
 
-Rules deliberately left off: `no-console` (this is a CLI — console *is* the output),
+Rules deliberately left off: `no-console` (this is a CLI — console _is_ the output),
 `no-top-level-await` (`src/main.ts` ends in one), `no-await-in-loop` (pagination and downloads are
 sequential on purpose) and `prefer-ascii` (the prose uses real typography).
 

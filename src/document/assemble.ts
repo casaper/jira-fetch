@@ -1,11 +1,11 @@
 /** Assembles the final Markdown document: frontmatter, description, then comments separated by
  * `---` horizontal rules. */
 
-import { adfToMarkdown } from "../adf/to_markdown.ts";
-import { commentExcluded } from "../filter/evaluate.ts";
-import type { CompiledFilters } from "../filter/rules.ts";
-import type { AssetManifest, IssueRef, JiraComment, JiraIssue } from "../jira/types.ts";
-import { buildFrontmatter, renderFrontmatter } from "./frontmatter.ts";
+import { adfToMarkdown } from '../adf/to_markdown.ts';
+import { commentExcluded } from '../filter/evaluate.ts';
+import type { CompiledFilters } from '../filter/rules.ts';
+import type { AssetManifest, IssueRef, JiraComment, JiraIssue } from '../jira/types.ts';
+import { buildFrontmatter, renderFrontmatter } from './frontmatter.ts';
 
 export interface AssembleInput {
   issue: JiraIssue;
@@ -24,12 +24,12 @@ export interface AssembleResult {
 }
 
 function commentHeading(comment: JiraComment): string {
-  const author = comment.author?.displayName ?? "Anonymous";
-  const when = comment.created ?? "";
+  const author = comment.author?.displayName ?? 'Anonymous';
+  const when = comment.created ?? '';
   const edited = comment.updated && comment.updated !== comment.created
     ? ` (edited ${comment.updated})`
-    : "";
-  return `### ${author}${when ? ` — ${when}` : ""}${edited}`;
+    : '';
+  return `### ${author}${when ? ` — ${when}` : ''}${edited}`;
 }
 
 export function assembleDocument(input: AssembleInput): AssembleResult {
@@ -54,16 +54,16 @@ export function assembleDocument(input: AssembleInput): AssembleResult {
   const parts = [
     frontmatter,
     `# ${issue.fields.summary ?? issue.key}`,
-    description || "*No description.*",
+    description || '*No description.*',
   ];
 
   for (const comment of kept) {
     const body = adfToMarkdown(comment.body, convert);
-    parts.push("---", `${commentHeading(comment)}\n\n${body || "*Empty comment.*"}`);
+    parts.push('---', `${commentHeading(comment)}\n\n${body || '*Empty comment.*'}`);
   }
 
   return {
-    markdown: `${parts.join("\n\n")}\n`,
+    markdown: `${parts.join('\n\n')}\n`,
     skippedComments: comments.length - kept.length,
   };
 }

@@ -1,12 +1,15 @@
 /** Builds the YAML frontmatter block: everything about the ticket that is worth having in a
  * machine-readable form. */
 
-import { stringify as stringifyYaml } from "@std/yaml";
-import type { AssetManifest, IssueRef, JiraIssue, JiraUser } from "../jira/types.ts";
+import { stringify as stringifyYaml } from '@std/yaml';
+import type { AssetManifest, IssueRef, JiraIssue, JiraUser } from '../jira/types.ts';
 
+/** snake_case because these keys land verbatim in the YAML frontmatter, which is the
+ * user-facing output contract — not a style slip. */
 export interface UserRecord {
   name?: string;
   email?: string;
+  // deno-lint-ignore camelcase
   account_id?: string;
 }
 
@@ -32,7 +35,7 @@ function ref(r: IssueRef | null | undefined) {
 }
 
 function names(list: Array<{ name?: string }> | undefined): string[] {
-  return (list ?? []).map((v) => v.name).filter((n): n is string => typeof n === "string");
+  return (list ?? []).map((v) => v.name).filter((n): n is string => typeof n === 'string');
 }
 
 export interface FrontmatterInput {

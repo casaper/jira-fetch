@@ -9,8 +9,8 @@
  *   3. `commentExcluded`   — per comment, while assembling the document.
  */
 
-import type { JiraComment, JiraIssue, JiraUser } from "../jira/types.ts";
-import type { CompiledFilters, CompiledTicketRule, MatchSet } from "./rules.ts";
+import type { JiraComment, JiraIssue, JiraUser } from '../jira/types.ts';
+import type { CompiledFilters, CompiledTicketRule, MatchSet } from './rules.ts';
 
 export interface Decision {
   excluded: boolean;
@@ -28,7 +28,7 @@ export type FieldResolver = (name: string) => string | undefined;
  * would demote this predicate to stage 2, and the two disagree after a project rename — old
  * keys keep resolving under the previous prefix. */
 export function projectPrefix(key: string): string {
-  const hyphen = key.lastIndexOf("-");
+  const hyphen = key.lastIndexOf('-');
   return (hyphen === -1 ? key : key.slice(0, hyphen)).toUpperCase();
 }
 
@@ -38,14 +38,14 @@ export function projectPrefix(key: string): string {
 export function normalizeValues(value: unknown): string[] {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) return value.flatMap(normalizeValues);
-  if (typeof value === "string") return value.length > 0 ? [value.toLowerCase()] : [];
-  if (typeof value === "number" || typeof value === "boolean") return [String(value)];
-  if (typeof value === "object") {
+  if (typeof value === 'string') return value.length > 0 ? [value.toLowerCase()] : [];
+  if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+  if (typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     const out: string[] = [];
-    for (const key of ["value", "name", "displayName", "emailAddress", "accountId", "key"]) {
+    for (const key of ['value', 'name', 'displayName', 'emailAddress', 'accountId', 'key']) {
       const v = obj[key];
-      if (typeof v === "string" && v.length > 0) out.push(v.toLowerCase());
+      if (typeof v === 'string' && v.length > 0) out.push(v.toLowerCase());
     }
     return out;
   }
@@ -74,7 +74,7 @@ function ruleMatchesIssue(
   if (rule.labels && !matches(rule.labels, normalizeValues(issue.fields.labels))) return false;
 
   if (rule.title) {
-    if (!rule.title.test(issue.fields.summary ?? "")) return false;
+    if (!rule.title.test(issue.fields.summary ?? '')) return false;
   }
 
   if (rule.reporter && !matches(rule.reporter, userTokens(issue.fields.reporter))) return false;
@@ -111,7 +111,7 @@ export function preFetchDecision(key: string, filters: CompiledFilters): Decisio
 
   if (filters.include.length > 0 && filters.include.every((r) => r.preFetch)) {
     if (!filters.include.some((r) => ruleMatchesKey(r, key))) {
-      return { excluded: true, reason: "matched no include rule" };
+      return { excluded: true, reason: 'matched no include rule' };
     }
   }
 
@@ -136,7 +136,7 @@ export function ticketDecision(
 
   if (filters.include.length > 0) {
     if (!filters.include.some((r) => ruleMatchesIssue(r, issue, resolveField))) {
-      return { excluded: true, reason: "matched no include rule" };
+      return { excluded: true, reason: 'matched no include rule' };
     }
   }
 
