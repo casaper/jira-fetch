@@ -124,7 +124,15 @@ deno test -A --filter "excludes anonymous reporter"
 deno task schema     # regenerate schema/jira-fetch.schema.json
 deno task build      # host binary into dist/
 deno task build:all  # all six release targets
+
+deno task hooks      # once per clone: enable the Conventional Commits hook
+deno task changelog  # regenerate CHANGELOG.md from the commit history
+deno task release patch   # bump, changelog, commit, tag
 ```
+
+Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and
+are checked by `.githooks/commit-msg`; `deno task hooks` is what turns that on in a fresh clone.
+[CHANGELOG.md](CHANGELOG.md) is generated from those subjects.
 
 The test suite needs no credentials and no network: `test/e2e_test.ts` runs the whole CLI against a
 fake Jira on localhost.
