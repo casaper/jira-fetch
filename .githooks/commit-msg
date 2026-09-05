@@ -1,0 +1,4 @@
+#!/bin/sh
+# Conventional Commits gate. Enable once per clone with: deno task hooks
+# Bypass a single commit with: git commit --no-verify
+exec deno run -R "$(dirname "$0")/../scripts/commit_lint.ts" "$1"
