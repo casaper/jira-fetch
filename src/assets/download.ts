@@ -71,6 +71,7 @@ export function buildManifest(
 
     const entry: AssetEntry = {
       id: attachment.id,
+      sourceName: attachment.filename ?? '',
       filename,
       relativePath: `${dir}/${filename}`,
       contentUrl: attachment.content,

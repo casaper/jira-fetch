@@ -22,7 +22,17 @@
           },
           {
             "type": "mediaSingle",
-            "content": [{ "type": "media", "attrs": { "id": "20002", "type": "file" } }]
+            "content": [
+              {
+                "type": "media",
+                "attrs": {
+                  "id": "37e23c0a-80c6-45ce-9ab3-4e98adc843f1",
+                  "type": "file",
+                  "collection": "",
+                  "alt": "screenshot 01.png"
+                }
+              }
+            ]
           }
         ]
       }

@@ -9,12 +9,15 @@
  * builds the manifest, and note that comment bodies carry `media` nodes too.
  */
 
-import type { AdfNode, AssetManifest } from '../jira/types.ts';
+import type { AdfNode, AssetEntry, AssetManifest } from '../jira/types.ts';
 
 export interface ConvertOptions {
   assets?: AssetManifest;
   /** Absolute Jira base URL, used to build a fallback link for media with no manifest entry. */
   baseUrl?: string;
+  /** Media UUID -> the attachment it was matched to, shared across one document's description and
+   * all of its comments. See `media()` for why the matching needs a memory. */
+  assigned?: Map<string, AssetEntry>;
 }
 
 const IMAGE_MIME = /^image\//;
@@ -184,10 +187,50 @@ class Converter {
     ].join('\n');
   }
 
+  /** Finds the attachment a `media` node refers to.
+   *
+   * **A media node does not carry its attachment's id.** Jira Cloud puts a media-service UUID in
+   * `attrs.id` — `7ad7af8b-228f-45ad-90da-d57a8032eb01` — which appears nowhere in the REST
+   * payload: not on the attachment, not in `attrs.collection` (empty), nowhere. The attachment's
+   * `filename`, which the node repeats in `attrs.alt`, is the only bridge there is.
+   *
+   * So, in order:
+   *
+   * 1. `assets.get(id)`, for a payload that really does name the attachment id.
+   * 2. A UUID already matched in this document resolves to the same attachment, so an image
+   *    embedded twice does not consume two entries.
+   * 3. The first *unmatched* attachment with that filename, remembered for step 2.
+   * 4. Failing that — every same-named attachment already spoken for — the first one by name
+   *    anyway. Linking to the wrong copy of a duplicate name beats losing the image.
+   *
+   * Steps 3 and 4 are document-order guesswork when two attachments share a filename, because
+   * ADF offers nothing else to tell them apart. `alt` is also editable in the Jira editor: when
+   * someone has changed it, nothing matches and the node renders as a missing-attachment marker.
+   * That is deliberate — fuzzy-matching a caption against filenames would link the wrong file
+   * silently, which is the failure this whole path exists to avoid. */
+  private findAsset(id: string | undefined, alt: string | undefined): AssetEntry | undefined {
+    const assets = this.opts.assets;
+    if (!assets) return undefined;
+    if (id) {
+      const byId = assets.get(id);
+      if (byId) return byId;
+      const remembered = this.opts.assigned?.get(id);
+      if (remembered) return remembered;
+    }
+    if (alt === undefined) return undefined;
+
+    const named = [...assets.values()].filter((entry) => entry.sourceName === alt);
+    if (named.length === 0) return undefined;
+    const taken = new Set(this.opts.assigned?.values());
+    const entry = named.find((candidate) => !taken.has(candidate)) ?? named[0];
+    if (id) this.opts.assigned?.set(id, entry);
+    return entry;
+  }
+
   private media(node: AdfNode): string {
     const id = typeof node.attrs?.id === 'string' ? node.attrs.id : undefined;
     const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : undefined;
-    const entry = id ? this.opts.assets?.get(id) : undefined;
+    const entry = this.findAsset(id, alt);
 
     if (entry) {
       const label = escapeText(alt ?? entry.filename);

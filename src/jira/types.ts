@@ -86,6 +86,11 @@ export type JiraIssue = Omit<JiraIssueBean, 'fields'> & { fields: JiraIssueField
  * Local to this tool — it describes a file on disk, so no Atlassian schema describes it. */
 export type AssetEntry = {
   id: string;
+  /** The filename exactly as Jira reports it, before sanitising or collision-renaming.
+   *
+   * This is the only bridge between an ADF `media` node and its attachment: the node carries a
+   * media-service UUID that appears nowhere in the REST payload, and its `alt` is this name. */
+  sourceName: string;
   /** Sanitised, collision-free name as written inside the asset directory. */
   filename: string;
   /** Path relative to the Markdown file, e.g. `.DN-1243/screenshot.png`. */

@@ -219,8 +219,11 @@ Deno.test('an anonymous comment is headed by its date, not by a placeholder name
 
 Deno.test("a comment's media resolves through the same manifest as the description", () => {
   const { markdown } = assemble();
-  // The label is escaped (underscores would otherwise italicise); the path is not.
-  assertStringIncludes(markdown, '![screenshot\\_01-20002.png](.DN-1243/screenshot_01-20002.png)');
+  // Both attachments are called "screenshot 01.png", so the two media UUIDs are matched in
+  // document order: the description takes the first, this comment the second. Nothing in ADF can
+  // distinguish them better than that.
+  assertStringIncludes(markdown, '![screenshot 01.png](.DN-1243/screenshot_01.png)');
+  assertStringIncludes(markdown, '![screenshot 01.png](.DN-1243/screenshot_01-20002.png)');
 });
 
 Deno.test('filtered comments are dropped and counted', () => {

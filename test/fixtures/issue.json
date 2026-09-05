@@ -116,7 +116,15 @@
         {
           "type": "mediaSingle",
           "content": [
-            { "type": "media", "attrs": { "id": "20001", "type": "file", "alt": "the screen" } }
+            {
+              "type": "media",
+              "attrs": {
+                "id": "7ad7af8b-228f-45ad-90da-d57a8032eb01",
+                "type": "file",
+                "collection": "",
+                "alt": "screenshot 01.png"
+              }
+            }
           ]
         },
         {

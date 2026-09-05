@@ -184,9 +184,58 @@ Deno.test('the fixture description converts end to end', () => {
       'const x = 1;',
       '```',
       '',
-      '![the screen](.DN-1243/screenshot_01.png)',
+      '![screenshot 01.png](.DN-1243/screenshot_01.png)',
       '',
       'still here',
     ].join('\n'),
   );
+});
+
+Deno.test('a media node is matched to its attachment by filename, not by id', () => {
+  // What Jira Cloud actually sends: a media-service UUID that appears nowhere in the REST
+  // payload, and the attachment's filename repeated in `alt`.
+  const assets = buildManifest(
+    [{ id: '66707', filename: 'diagram.png', content: 'https://x/1', mimeType: 'image/png' }],
+    'DN-1',
+  );
+  const body = doc({
+    type: 'media',
+    attrs: { id: '7ad7af8b-228f-45ad-90da-d57a8032eb01', type: 'file', alt: 'diagram.png' },
+  });
+  assertEquals(adfToMarkdown(body, { assets }), '![diagram.png](.DN-1/diagram.png)');
+});
+
+Deno.test('same-named attachments are matched in document order, then reused', () => {
+  const assets = buildManifest([
+    { id: '1', filename: 'shot.png', content: 'https://x/1', mimeType: 'image/png' },
+    { id: '2', filename: 'shot.png', content: 'https://x/2', mimeType: 'image/png' },
+  ], 'DN-1');
+  const media = (id: string) => ({ type: 'media', attrs: { id, type: 'file', alt: 'shot.png' } });
+  const assigned = new Map();
+
+  // Two distinct UUIDs take one attachment each, in the order they appear.
+  assertEquals(
+    adfToMarkdown(doc(media('uuid-a')), { assets, assigned }),
+    '![shot.png](.DN-1/shot.png)',
+  );
+  assertEquals(
+    adfToMarkdown(doc(media('uuid-b')), { assets, assigned }),
+    '![shot.png](.DN-1/shot-2.png)',
+  );
+  // The same UUID again resolves to what it resolved to before, rather than consuming a third.
+  assertEquals(
+    adfToMarkdown(doc(media('uuid-a')), { assets, assigned }),
+    '![shot.png](.DN-1/shot.png)',
+  );
+});
+
+Deno.test('an alt that names no attachment stays a visible marker', () => {
+  const assets = buildManifest(
+    [{ id: '1', filename: 'shot.png', content: 'https://x/1', mimeType: 'image/png' }],
+    'DN-1',
+  );
+  // `alt` is editable in the Jira editor. A caption that matches nothing is not fuzzy-matched:
+  // linking the wrong file silently is the failure this path exists to avoid.
+  const body = doc({ type: 'media', attrs: { id: 'uuid-a', type: 'file', alt: 'a screenshot' } });
+  assertEquals(adfToMarkdown(body, { assets }), '*[missing attachment uuid-a]*');
 });

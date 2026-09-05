@@ -60,7 +60,9 @@ export function assembleDocument(input: AssembleInput): AssembleResult {
     }),
   );
 
-  const convert = { assets, baseUrl };
+  // One `assigned` map for the whole document: a media UUID matched in the description must
+  // resolve to the same attachment when a comment embeds it again. See `findAsset`.
+  const convert = { assets, baseUrl, assigned: new Map() };
   const description = adfToMarkdown(issue.fields.description, convert);
 
   // The heading carries the link the frontmatter used to spell out as `url`. Escaped with the
