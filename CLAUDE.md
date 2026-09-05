@@ -26,6 +26,10 @@ deno test -A src/adf/to_markdown_test.ts              # single test file
 deno task schema                      # regenerate schema/jira-fetch.schema.json
 deno task build                       # host binary -> dist/
 deno task build:all                   # all six release targets
+deno task hooks                       # once per clone: enable the commit-msg hook
+deno task commitlint --from <rev>     # lint the commit messages after <rev>
+deno task changelog                   # regenerate CHANGELOG.md from the history
+deno task release patch               # bump + changelog + commit + tag
 ```
 
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
@@ -83,6 +87,44 @@ Rules deliberately left off: `no-console` (this is a CLI — console _is_ the ou
 `no-top-level-await` (`src/main.ts` ends in one), `no-await-in-loop` (pagination and downloads are
 sequential on purpose) and `prefer-ascii` (the prose uses real typography).
 
+## Commit messages
+
+Conventional Commits 1.0.0, enforced by `.githooks/commit-msg`. `core.hooksPath` is local config
+and cannot be committed, so **every clone runs `deno task hooks` once** — until it does, nothing
+checks anything.
+
+```
+type(scope)!: subject
+```
+
+- Types and their changelog headings are declared together in `scripts/commit_lint.ts`; adding a
+  type there is the only edit needed for it to appear in the changelog.
+- Scopes are optional and come from the layout: `config`, `cli`, `jira`, `filter`, `adf`, `assets`,
+  `document`, `schema`, `scripts`, `deps`, `release`.
+- Header ≤ 72 characters, imperative, lower-case, no trailing period. Bodies wrap at 100 to match
+  `.editorconfig`, and long unbreakable tokens (URLs, paths) are exempt.
+- **The convention governs the subject line only.** This project's commit bodies explain _why_, at
+  length; keep writing them.
+- `deno task commitlint --from <rev>` lints commits that already exist — that is how a history
+  rewrite gets verified.
+
+It is deliberately not commitlint: that is an npm dependency tree in a project whose toolchain is
+`deno lint` and `deno fmt`, and it would not know these scopes. Husky is unnecessary for the same
+reason `deno task hooks` is one line — husky exists to run that line from npm's `prepare` hook.
+
+## Releases
+
+`deno task release <patch|minor|major>` (or `--set x.y.z`) bumps the version, regenerates
+`CHANGELOG.md`, commits `chore(release): vX.Y.Z` and creates the annotated tag. It refuses a dirty
+tree and runs `deno task check` before committing. Pushing and `deno task build:all` stay manual.
+
+`CHANGELOG.md` is generated, never hand-edited — a careless subject line becomes a careless
+changelog entry. Non-conventional subjects are not silently dropped; they collect under "Other".
+
+**The version string lives in two files**: `deno.json` and `VERSION` in `src/cli/args.ts`, which
+`--help` prints. Nothing at type level can hold them equal, so `scripts/release.ts` owns both and
+refuses to start when they have drifted — the same class of hazard as `PERMISSIONS` above.
+
 ## Layout
 
 ```
@@ -96,7 +138,7 @@ src/filter/evaluate.ts  the three filter stages
 src/adf/to_markdown.ts  ADF -> Markdown
 src/assets/download.ts  filename sanitising, the attachment manifest, downloads
 src/document/           frontmatter + document assembly
-scripts/                build matrix, JSON Schema generation
+scripts/                build matrix, JSON Schema generation, commit lint, changelog, release
 ```
 
 Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`.
