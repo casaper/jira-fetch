@@ -218,3 +218,33 @@ Deno.test('a .env in the working directory cannot reach a sealed run', async () 
     }
   });
 });
+
+Deno.test('an include rule the key cannot satisfy means the issue is never requested', async () => {
+  await withJira(async ({ out, runWith, requests }) => {
+    // The rule needs the payload for `labels`, but its `project` predicate already rules SUP-9
+    // out — and every predicate in a rule must hold, so nothing in the payload could rescue it.
+    const code = await runWith(['SUP-9'], {
+      filters: { include: [{ project: ['DN'], labels: ['backend'] }] },
+    });
+
+    assertEquals(code, EXIT.allFiltered);
+    // The proof this test exists for: --dry-run can show that nothing was written, but only the
+    // request log can show that nothing was read. Under the MCP server this is the difference
+    // between denying a ticket and reading it with the user's credentials before denying it.
+    assertEquals(requests.filter((r) => r.includes('SUP-9')), []);
+    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), ['config.json']);
+  });
+});
+
+Deno.test('a filter naming an unknown field fails as a config error, before any issue', async () => {
+  await withJira(async ({ runWith, requests }) => {
+    const code = await runWith(['DN-1243'], {
+      filters: { exclude: [{ field: { Teem: ['Platform'] } }] },
+    });
+
+    // Exit 2, not 1: the fix is in the config file. It used to be a warning, and the run went on
+    // with an exclude rule that excluded nothing.
+    assertEquals(code, EXIT.usageError);
+    assertFalse(requests.some((r) => r.includes('DN-1243')));
+  });
+});

@@ -160,3 +160,29 @@ Deno.test('an issue without the optional fields does not throw', () => {
   });
   assertFalse(ticketDecision(bare, filters).excluded);
 });
+
+Deno.test('an include rule the key cannot satisfy drops it before any request', () => {
+  // The rule has a predicate that needs the payload, but its project predicate already makes it
+  // unmatchable for this key — and every predicate in a rule has to hold. So there is nothing the
+  // payload could say that would rescue it, and fetching it to find that out is wasted.
+  const filters = compileFilters({ include: [{ project: ['DN'], labels: ['urgent'] }] });
+
+  assert(preFetchDecision('SUP-9', filters).excluded);
+  assertFalse(preFetchDecision('DN-1', filters).excluded);
+});
+
+Deno.test('an include rule without a project predicate still needs the payload', () => {
+  // Nothing about the key rules this out, so stage 1 must not guess.
+  const filters = compileFilters({ include: [{ labels: ['urgent'] }] });
+
+  assertFalse(preFetchDecision('SUP-9', filters).excluded);
+});
+
+Deno.test('one reachable include rule is enough to survive stage 1', () => {
+  // Rules are OR'd: DN is ruled out by the first, but the second could still match on payload.
+  const filters = compileFilters({
+    include: [{ project: ['SUP'] }, { labels: ['urgent'] }],
+  });
+
+  assertFalse(preFetchDecision('DN-1', filters).excluded);
+});

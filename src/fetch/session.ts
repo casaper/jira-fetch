@@ -7,6 +7,7 @@
 
 import { join } from '@std/path';
 import type { Config } from '../config/config.ts';
+import { ConfigError } from '../config/errors.ts';
 import type { FieldResolver } from '../filter/evaluate.ts';
 import { preFetchDecision, ticketDecision } from '../filter/evaluate.ts';
 import type { JiraClient } from '../jira/client.ts';
@@ -51,9 +52,23 @@ export type FetchSession = {
 };
 
 /**
- * Resolves configured field names ("Team") to the `fields` key they occupy
+ * Resolves configured field names ("Team") to the key they occupy in `issue.fields`
  * ("customfield_10101"). `GET /rest/api/3/field` is called at most once, and only when a `field`
  * predicate exists — a config without one never touches the endpoint.
+ *
+ * **A name that cannot be resolved to exactly one field is a configuration error, not a warning.**
+ * It used to be treated as "absent", which reads reasonably until you notice what it does to the
+ * two rule lists. An `exclude` rule on an unresolvable name matches nothing, so it **denies
+ * nothing** — `exclude: [{field: {Teem: [...]}}]` is a deny rule that silently does not deny, and
+ * `Team` and `Teams` can both exist on one site. An `include` rule on the same name matches
+ * nothing either, so it denies *everything* and the user gets an empty run with no explanation.
+ * Both are silent, and since this same block is what an agent's access is decided by, failing
+ * open is the wrong direction to be wrong in. Fail loudly, at startup, before a single issue is
+ * fetched.
+ *
+ * Ambiguity is an error for the same reason. Jira Cloud allows two custom fields to share a name,
+ * and this site has four such pairs; picking whichever the API happened to list last would make
+ * the meaning of a rule depend on the response order.
  */
 const makeFieldResolver = async (
   client: JiraClient,
@@ -63,20 +78,48 @@ const makeFieldResolver = async (
   if (names.length === 0) return () => undefined;
 
   log('  resolving custom field names...');
-  const byName = new Map<string, string>();
+  // Ids and keys are unique, names are not, so they cannot share one map: a name resolving to two
+  // fields has to stay visible as two rather than collapsing to the last one written.
+  const byId = new Map<string, string>();
+  const byName = new Map<string, Set<string>>();
   for (const field of await client.getFields()) {
-    byName.set(field.name.toLowerCase(), field.id);
-    byName.set(field.id.toLowerCase(), field.id);
-    if (field.key) byName.set(field.key.toLowerCase(), field.id);
+    byId.set(field.id.toLowerCase(), field.id);
+    if (field.key) byId.set(field.key.toLowerCase(), field.id);
+    const existing = byName.get(field.name.toLowerCase()) ?? new Set<string>();
+    existing.add(field.id);
+    byName.set(field.name.toLowerCase(), existing);
   }
 
+  const resolve = (name: string): string | undefined => {
+    const lower = name.toLowerCase();
+    // An exact id or key wins over a display name, so a raw `customfield_10078` is always an
+    // unambiguous way to say what you mean — which is what the ambiguity error tells you to use.
+    const byExactId = byId.get(lower);
+    if (byExactId) return byExactId;
+    const candidates = byName.get(lower);
+    return candidates?.size === 1 ? [...candidates][0] : undefined;
+  };
+
+  const problems: string[] = [];
   for (const name of names) {
-    if (!byName.has(name.toLowerCase())) {
-      log(`  warning: field "${name}" does not exist on this site; treating it as absent`);
-    }
+    if (resolve(name) !== undefined) continue;
+    const candidates = byName.get(name.toLowerCase());
+    problems.push(
+      candidates && candidates.size > 1
+        ? `field "${name}" is ambiguous on this site — ${candidates.size} fields share that name ` +
+          `(${[...candidates].join(', ')}); use the id of the one you mean`
+        : `field "${name}" does not exist on this site`,
+    );
+  }
+  if (problems.length > 0) {
+    throw new ConfigError(
+      `filters name fields this Jira site does not resolve:\n${
+        problems.map((p) => `  - ${p}`).join('\n')
+      }`,
+    );
   }
 
-  return (name: string) => byName.get(name.toLowerCase());
+  return resolve;
 };
 
 /** Resolves custom-field names once, then hands back a session over that resolution. */

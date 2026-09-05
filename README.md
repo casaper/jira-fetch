@@ -128,9 +128,17 @@ JSON works just as well — every name above has a `.json` spelling, and there t
   fetched. **Exclude beats include.**
 - **`null` means "absent"** — an anonymous portal reporter, an unassigned issue, an unset field. It
   is spelled as JSON `null` so it can never collide with someone actually named "anonymous".
+- **`field` reaches every field, built-in ones included.** `Status`, `Issue Type`, `Components`,
+  `Priority`, `Resolution` and `Fix Version/s` are spelled exactly as Jira spells them, so
+  `field: {Status: [Done, Cancelled]}` and `field: {Issue Type: [Bug]}` do what they look like.
+  That is how you filter by type or status; there is no separate predicate for them.
 - **`field` accepts a human name or a raw id.** `"Team"` is resolved against your site's fields;
-  `"customfield_10101"` is used directly. A field that does not exist on the site reads as absent
-  rather than failing, so one config can be shared across sites.
+  `"customfield_10101"` is used directly.
+- **A field name that does not resolve stops the run** with exit code 2, before any issue is
+  fetched. So does one that resolves to _two_ fields — Jira lets two custom fields share a name,
+  and the error names both ids so you can pick one. Both used to be warnings, which is a bad way
+  to be wrong: a `Teem` in an `exclude` rule is a deny rule that silently denies nothing, and in
+  an `include` rule it silently denies everything.
 - `tags` is an alias for `labels`.
 - **Comment filters drop comments, never the ticket** — and they are exclude-only on purpose: an
   include list would mean "drop every comment not explicitly allowed", which is the wrong default
@@ -169,6 +177,10 @@ per-issue request, not the query.) Every other predicate needs the issue payload
 immediately after the issue is fetched and **before** comments are paginated or any attachment is
 downloaded. That is where the cost and all the disk writes are, so nothing is written and nothing
 large is transferred for a ticket you filtered out.
+
+A rule is also skipped before fetching when its `project` predicate alone already rules the key
+out, even if the rule has other predicates that would need the payload — nothing the payload could
+say would rescue a rule whose project constraint already failed.
 
 `--dry-run` and `-v` are how you see this happening: a filtered ticket deliberately leaves no trace
 on disk.
@@ -263,6 +275,7 @@ deno task lint
 deno task fmt
 deno task test       # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"
+deno task verify:filters  # filter scenarios against the real Jira site (needs credentials)
 deno task schema     # regenerate schema/jira-fetch.schema.json
 deno task types      # regenerate src/jira/schema_types.ts from the vendored specs
 deno task mcp        # run the MCP server from source
@@ -287,6 +300,12 @@ are checked by `.githooks/commit-msg`; `deno task hooks` is what turns that on i
 The test suite needs no credentials and no network: `test/e2e_test.ts` runs the whole CLI against a
 fake Jira on localhost (`test/fake_jira.ts`), and `test/mcp_test.ts` drives the MCP server against
 the same one.
+
+`deno task verify:filters` is the complement, and is deliberately outside that suite: it runs a
+table of allow/deny/both scenarios against your **real** Jira site, computes what each one should
+keep from the tickets' actual fields, and compares. It skips with a message when no credentials are
+configured. Documents land in `tmp/filters/` and are left there, so the run doubles as a way to see
+what the tool produces for real tickets.
 
 ## License
 

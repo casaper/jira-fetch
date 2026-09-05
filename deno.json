@@ -10,6 +10,7 @@
     "lint": "deno lint",
     "fmt": "deno fmt",
     "test": "deno test -A",
+    "verify:filters": "deno run --allow-net --allow-env --allow-read --allow-write scripts/verify_filters.ts",
     "schema": "deno run -A scripts/gen_schema.ts",
     "vendor:spec": "deno run --allow-net --allow-read --allow-write scripts/vendor_spec.ts",
     "types": "deno run -A scripts/gen_types.ts",

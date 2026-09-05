@@ -22,6 +22,7 @@ deno check test/                      # `check` covers src/ and scripts/ only �
 deno task lint
 deno task fmt
 deno task test                        # or: deno test -A
+deno task verify:filters              # filter scenarios against the REAL site; needs credentials
 deno test -A --filter "excludes anonymous reporter"   # single test by name
 deno test -A src/adf/to_markdown_test.ts              # single test file
 deno task schema                      # regenerate schema/jira-fetch.schema.json
@@ -63,6 +64,14 @@ every e2e test with exit 2, far from the change.
 is the single source of truth and must stay identical to the `--allow-*` string in the `dev` task in
 `deno.json`, or the shipped binary behaves differently from `deno run` — a bug that only appears
 after distribution.
+
+`deno task verify:filters` (`scripts/verify_filters.ts`) is the one thing that talks to a real Jira
+site, and it is **not** part of `deno test -A` — that suite is sealed. It runs allow/deny/both
+scenarios through `createSession`, and decides what each _should_ keep with a deliberately dumb
+oracle written in that file, which imports nothing from `src/filter/`. Agreement between the two is
+the evidence; hardcoding the expected keys would only prove the site had not changed. It skips
+cleanly (exit 0) without credentials. Keep request-economy assertions — "this was never fetched" —
+in the sealed suite instead: only `test/fake_jira.ts` records what went on the wire.
 
 No CI: `deno task check` and the suite run locally. Release binaries are cross-compiled and
 attached to a GitHub release by `deno task publish`, from a developer's machine — see Releases.
@@ -327,6 +336,30 @@ This is the part that spans modules, so it is worth stating plainly:
 `projectPrefix()` reads the **issue key**, deliberately not `fields.project.key`: using the field
 would demote stage 1 to stage 2, and the two disagree after a project rename, since old keys keep
 resolving.
+
+**Stage 1 rules include rules out, rather than ruling them in.** A rule whose `project` predicate
+the key fails can never match — every predicate in a rule must hold, so the rest cannot rescue it —
+which means the ticket is unreachable when _every_ include rule fails that way. That is stronger
+than the older "every include rule is project-only" test, and it is what keeps
+`include: [{project: [DN], labels: [x]}]` from fetching a SUP ticket in full before discarding it.
+Under the MCP server it is also the difference between denying a ticket and reading it with the
+user's credentials on the way to denying it.
+
+**An unresolvable or ambiguous field name is a `ConfigError`, thrown by `makeFieldResolver`
+(`src/fetch/session.ts`) before a single issue is fetched.** It used to be a warning, and the
+asymmetry is why that was wrong: an unresolvable name in an `exclude` rule matches nothing, so the
+rule **denies nothing**, silently — and `Team` and `Teams` can both exist on one site. In an
+`include` rule the same name denies _everything_, equally silently. Jira Cloud also permits two
+custom fields with the same display name (the development site has four such pairs), so resolving
+by name has to refuse the ambiguity rather than take whichever the API listed last; the error names
+the ids, and a raw id always resolves unambiguously. Do not soften this back into a warning on the
+grounds that a config might be shared across sites — the same block is what an agent's access is
+decided by.
+
+`field` predicates reach **built-in** fields too, since `GET /rest/api/3/field` lists them:
+`Status`, `Issue Type`, `Components`, `Priority` and so on all work, which is why there are no
+separate `type`/`status` predicates. `deno task verify:filters` exercises exactly that against the
+real site.
 
 Filters are **not** folded into server-side JQL. The user's contract is that batch mode behaves
 exactly like running single fetches in a row, and one client-side evaluation path is the only way to

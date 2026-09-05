@@ -21,7 +21,12 @@ export interface Decision {
 const KEEP: Decision = { excluded: false };
 
 /** Resolves a configured field name ("Team") to the key it occupies in `issue.fields`
- * ("customfield_10101"). Returns undefined when the field does not exist on this site. */
+ * ("customfield_10101").
+ *
+ * `undefined` means the name resolved to no field, or to more than one. `makeFieldResolver` in
+ * `src/fetch/session.ts` rejects both at startup for every name the filters mention, so by the
+ * time a real run reaches here it cannot happen; the branch below is for the default resolver and
+ * for direct callers in tests. */
 export type FieldResolver = (name: string) => string | undefined;
 
 /** The project prefix comes from the issue key, not `fields.project.key`. Reading the field
@@ -82,8 +87,9 @@ function ruleMatchesIssue(
 
   for (const { name, match } of rule.field ?? []) {
     const key = resolveField(name);
-    // An unresolvable field is treated as absent rather than as an error: a filter config shared
-    // across Jira sites should not hard-fail on a site where the custom field does not exist.
+    // Reads as absent, which for an exclude rule means "does not match" — i.e. denies nothing.
+    // That is why an unresolvable name is refused at startup rather than tolerated here: a deny
+    // rule that quietly denies nothing is the worst way for this to be wrong.
     const raw = key === undefined ? undefined : issue.fields[key];
     if (!matches(match, normalizeValues(raw))) return false;
   }
@@ -98,9 +104,20 @@ function ruleMatchesKey(rule: CompiledTicketRule, key: string): boolean {
 /**
  * Stage 1. Decides from the issue key alone, so a matching ticket is genuinely never requested.
  *
- * Include rules only participate here when *all* of them are pre-fetch rules — otherwise a
- * ticket might still satisfy an include rule that needs the payload, and dropping it now would
- * be wrong.
+ * An **exclude** rule participates only when every one of its predicates is decidable from the
+ * key, since a rule that still has a label or a field to check might not match at all.
+ *
+ * An **include** rule participates on the opposite footing: what matters is not whether the rule
+ * could match, but whether it could *fail*. A rule carrying a `project` predicate the key does not
+ * satisfy can never match, whatever the payload turns out to say — the remaining predicates cannot
+ * rescue it, because every predicate in a rule must hold. So when every include rule is ruled out
+ * that way, the ticket is unreachable and is dropped without being requested.
+ *
+ * That is strictly more than the older test, "every include rule is project-only", which let
+ * `include: [{project: [DN], labels: [x]}]` fetch a SUP ticket in full before discarding it. It
+ * matters beyond the wasted request: under the MCP server these rules are what an agent's access
+ * is decided by, and a ticket that is going to be denied should not be read with the user's
+ * credentials on the way to denying it.
  */
 export function preFetchDecision(key: string, filters: CompiledFilters): Decision {
   for (const rule of filters.exclude) {
@@ -109,10 +126,12 @@ export function preFetchDecision(key: string, filters: CompiledFilters): Decisio
     }
   }
 
-  if (filters.include.length > 0 && filters.include.every((r) => r.preFetch)) {
-    if (!filters.include.some((r) => ruleMatchesKey(r, key))) {
-      return { excluded: true, reason: 'matched no include rule' };
-    }
+  const prefix = projectPrefix(key);
+  const unreachable = (rule: CompiledTicketRule) =>
+    rule.project !== undefined && !rule.project.has(prefix);
+
+  if (filters.include.length > 0 && filters.include.every(unreachable)) {
+    return { excluded: true, reason: 'matched no include rule' };
   }
 
   return KEEP;

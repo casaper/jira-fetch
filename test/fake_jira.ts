@@ -84,7 +84,14 @@ export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
       );
     }
     if (url.pathname === '/rest/api/3/field') {
-      return Response.json([{ id: 'customfield_10101', name: 'Team', custom: true }]);
+      return Response.json([
+        { id: 'customfield_10101', name: 'Team', custom: true },
+        { id: 'status', name: 'Status', custom: false },
+        // Two fields sharing a name is not hypothetical: Jira Cloud allows it, and the site this
+        // was developed against has four such pairs.
+        { id: 'customfield_10078', name: 'Category', custom: true },
+        { id: 'customfield_10045', name: 'Category', custom: true },
+      ]);
     }
     return new Response('not found', { status: 404 });
   });

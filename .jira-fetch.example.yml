@@ -16,6 +16,11 @@ filters:
   exclude:
     - project: [SUP]
     - labels: [wontfix, duplicate]
+    # `field` reaches built-in fields as well as custom ones — this is how you filter by type or
+    # status. A name that does not resolve, or resolves to two fields, stops the run with exit 2.
+    - field:
+        Status: [Cancelled, Done]
+        Issue Type: [Bug]
     - field:
         Team: [Platform]
         Components: [api]

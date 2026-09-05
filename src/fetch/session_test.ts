@@ -2,13 +2,14 @@
  * between them. These tests pin the `Outcome` shapes rather than the file contents, which
  * `src/document/` and the e2e suite already cover. */
 
-import { assert, assertEquals, assertStringIncludes } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
 import { createSession } from './session.ts';
 import type { Config } from '../config/config.ts';
 import { compileFilters } from '../filter/rules.ts';
 import { People } from '../config/schema.ts';
 import { JiraClient } from '../jira/client.ts';
+import { ConfigError } from '../config/errors.ts';
 import { type Fake, startFakeJira } from '../../test/fake_jira.ts';
 import type { FiltersConfig } from '../config/schema.ts';
 
@@ -134,4 +135,67 @@ Deno.test('the session writes nothing to stdout, whatever the outcome', async ()
   }
   // This is the property the MCP server depends on: stdout is the JSON-RPC stream there.
   assertEquals(captured, []);
+});
+
+Deno.test('a filter naming a field the site does not have is refused, not ignored', async () => {
+  const fake = await startFakeJira();
+  const out = await Deno.makeTempDir();
+  try {
+    const config = configFor(fake, out, { exclude: [{ field: { Teem: ['anything'] } }] });
+    const error = await assertRejects(
+      () =>
+        createSession({
+          config,
+          client: new JiraClient({
+            baseUrl: config.baseUrl,
+            email: config.email,
+            token: config.token,
+          }),
+          log: () => {},
+        }),
+      ConfigError,
+    );
+    // Named, so the fix is obvious. The alternative — treating it as absent — makes an exclude
+    // rule deny nothing at all, silently.
+    assertStringIncludes(error.message, 'Teem');
+    assertStringIncludes(error.message, 'does not exist');
+  } finally {
+    await fake.stop();
+    await Deno.remove(out, { recursive: true });
+  }
+});
+
+Deno.test('a field name two fields share is refused as ambiguous, naming both', async () => {
+  const fake = await startFakeJira();
+  const out = await Deno.makeTempDir();
+  try {
+    const config = configFor(fake, out, { exclude: [{ field: { Category: ['x'] } }] });
+    const error = await assertRejects(
+      () =>
+        createSession({
+          config,
+          client: new JiraClient({
+            baseUrl: config.baseUrl,
+            email: config.email,
+            token: config.token,
+          }),
+          log: () => {},
+        }),
+      ConfigError,
+    );
+    assertStringIncludes(error.message, 'ambiguous');
+    // Both ids, so the message says how to disambiguate rather than only that you must.
+    assertStringIncludes(error.message, 'customfield_10078');
+    assertStringIncludes(error.message, 'customfield_10045');
+  } finally {
+    await fake.stop();
+    await Deno.remove(out, { recursive: true });
+  }
+});
+
+Deno.test('a raw field id resolves even when its display name is ambiguous', async () => {
+  await withSession({ exclude: [{ field: { customfield_10078: ['x'] } }] }, async ({ session }) => {
+    // The escape hatch the ambiguity error points at has to actually work.
+    assertEquals((await session.fetch('DN-1243')).status, 'written');
+  });
 });

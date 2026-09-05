@@ -168,7 +168,18 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     log(`output: ${config.outDir}`);
 
     const client = new JiraClient(clientOptions);
-    await serveMcp(await createSession({ config, client, log }), config);
+    try {
+      await serveMcp(await createSession({ config, client, log }), config);
+    } catch (cause) {
+      // A policy that does not resolve is not a server that should start: it would offer an agent
+      // whatever the broken rule failed to deny.
+      if (cause instanceof ConfigError) {
+        console.error(`error: ${cause.message}`);
+        return EXIT.usageError;
+      }
+      console.error(`error: ${(cause as Error).message}`);
+      return EXIT.runtimeError;
+    }
     return EXIT.ok;
   }
 
@@ -193,6 +204,12 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
       }
     }
   } catch (cause) {
+    // A filter naming a field this site does not have is a config error, not a runtime one — the
+    // fix is in the file, and the exit code should say so.
+    if (cause instanceof ConfigError) {
+      console.error(`error: ${cause.message}`);
+      return EXIT.usageError;
+    }
     // A failure enumerating candidates (bad JQL, auth, network) is fatal for the whole run.
     console.error(`error: ${(cause as Error).message}`);
     if (cause instanceof JiraError || cause instanceof Error) return EXIT.runtimeError;
