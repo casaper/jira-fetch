@@ -1,4 +1,5 @@
 import { parseArgs } from '@std/cli/parse-args';
+import type { ConfigFile } from '../config/schema.ts';
 
 export const VERSION = '0.1.0';
 
@@ -6,19 +7,17 @@ export class UsageError extends Error {
   override readonly name = 'UsageError';
 }
 
-export interface Args {
+/** The flags that also exist as config keys are derived from the schema; the rest are CLI-only
+ * and have no config-file counterpart. */
+export type Args = Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'out'> & {
   keys: string[];
   jql?: string;
-  out?: string;
   config?: string;
-  baseUrl?: string;
-  email?: string;
-  token?: string;
   dryRun: boolean;
   verbose: boolean;
   help: boolean;
   version: boolean;
-}
+};
 
 const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 

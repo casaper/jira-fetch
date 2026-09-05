@@ -10,22 +10,18 @@ import { type ConfigFile, parseConfigFile } from './schema.ts';
 export { ConfigError };
 export type { ConfigFile };
 
-export interface CredentialOverrides {
-  baseUrl?: string;
-  email?: string;
-  token?: string;
-}
-
-export interface Config {
-  baseUrl: string;
-  email: string;
-  token: string;
-  outDir: string;
-  allowJql: boolean;
-  filters: CompiledFilters;
-  /** Where the config came from, for --verbose. */
-  configPath?: string;
-}
+/** The resolved configuration. Every key it shares with the config file is derived from the Zod
+ * schema, so a rename there is a compile error here. `filters` is the compiled form (Sets and
+ * RegExps, which no JSON Schema can express) and `configPath` is not configurable at all. */
+export type Config =
+  & Required<Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'allowJql'>>
+  & {
+    /** The config file's `out`, resolved to an absolute path. */
+    outDir: NonNullable<ConfigFile['out']>;
+    filters: CompiledFilters;
+    /** Where the config came from, for --verbose. */
+    configPath?: string;
+  };
 
 const FILE_NAMES = ['.jira-fetch.json', '.jira-fetch.yaml', '.jira-fetch.yml'];
 
@@ -84,13 +80,14 @@ export async function loadConfigFile(path: string): Promise<ConfigFile> {
   return parseConfigText(text, path);
 }
 
-export interface ResolveOptions {
-  flags: CredentialOverrides & { out?: string };
+export type ResolveOptions = {
+  /** CLI overrides: the same keys as the file, all optional there and here. */
+  flags: Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'out'>;
   env: Record<string, string | undefined>;
   file?: ConfigFile;
   filePath?: string;
   cwd: string;
-}
+};
 
 /** Picks the first defined value across the three sources, key by key. */
 function pick<T>(...candidates: Array<T | undefined>): T | undefined {
