@@ -2,6 +2,11 @@
 
 Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments and all.
 
+> **This project was written entirely by AI.** Every line of code, test and document in this
+> repository was produced by Claude in a series of prompted sessions — it is fully vibe-coded.
+> It is tested (139 tests, no network needed) and it does the job, but it has not been
+> line-by-line reviewed by a human. Read it before you trust it with credentials.
+
 ```sh
 jira-fetch DN-1243 --out tmp
 # tmp/DN-1243.md
@@ -123,3 +128,17 @@ deno task build:all  # all six release targets
 
 The test suite needs no credentials and no network: `test/e2e_test.ts` runs the whole CLI against a
 fake Jira on localhost.
+
+## License
+
+[MIT](LICENSE).
+
+Nothing in the dependency tree stands in the way: Deno, the Deno standard library (`@std/*`) and
+zod are all MIT. The **compiled binaries** are a slightly different matter — `deno compile` embeds
+the Deno runtime and V8 into each artifact, so a release carries their notices too: Deno and `@std`
+under MIT, V8 under BSD-3-Clause, and the Rust crates Deno links under MIT/Apache-2.0. All
+permissive, none copyleft; the obligation is attribution, not disclosure.
+
+One honest footnote to the copyright line, given the disclaimer above: purely AI-generated work may
+not attract copyright protection in the first place in some jurisdictions, the US among them. MIT is
+still the right label — it says plainly that you may use this for anything.
