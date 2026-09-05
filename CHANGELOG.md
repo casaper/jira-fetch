@@ -6,6 +6,26 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.3.0 — 2026-09-05
+
+### Breaking changes
+
+- trim the frontmatter and make people configurable ([9ef0f8f](https://github.com/casaper/jira-fetch/commit/9ef0f8f3b16b186987645694c7da9c529b2d941d))
+
+### Features
+
+- **document:** trim the frontmatter and make people configurable ([9ef0f8f](https://github.com/casaper/jira-fetch/commit/9ef0f8f3b16b186987645694c7da9c529b2d941d))
+
+### Bug Fixes
+
+- **adf:** match media nodes to attachments by filename ([c75f8cd](https://github.com/casaper/jira-fetch/commit/c75f8cdf5a868091de6d811e3027c2c7c416df0d))
+- **document:** match Jira's timestamp format and drop copied titles ([96eb6f8](https://github.com/casaper/jira-fetch/commit/96eb6f8ed14fcd118762ad1f7107e2ca4a07bd5d))
+- **config:** refuse a credential that is only a variable reference ([b992027](https://github.com/casaper/jira-fetch/commit/b992027a8f947d076b1dcdad6bbadee4c8c57a32))
+
+### Chores
+
+- rename the example config to .yml and add an .envrc ([1ca9e40](https://github.com/casaper/jira-fetch/commit/1ca9e409fcf70da1d36014b9a8aef25e788a2e8a))
+
 ## 0.2.0 — 2026-09-05
 
 ### Features

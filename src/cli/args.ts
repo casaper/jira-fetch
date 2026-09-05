@@ -1,7 +1,7 @@
 import { parseArgs } from '@std/cli/parse-args';
 import type { ConfigFile } from '../config/schema.ts';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 export class UsageError extends Error {
   override readonly name = 'UsageError';
