@@ -58,9 +58,9 @@ const isEmpty = (value: unknown): boolean =>
  * Children are pruned before their parents, so `{ parent: { status: null } }` collapses all the
  * way rather than leaving an empty object behind. Object *properties* are dropped; array
  * *elements* are pruned in place but never removed, since dropping one would shift every index
- * after it. The consequence is that nested records go ragged — `parent` may be just `{ key }`,
- * and one `assets` entry may carry `size` where another does not. That is the same rule applied
- * consistently rather than stopped at the top level. */
+ * after it. The consequence is that nested records go ragged: `parent` may be just `{ key }` when
+ * Jira sent nothing else about it. That is the same rule applied consistently rather than stopped
+ * at the top level. */
 const prune = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(prune);
   if (!isRecord(value)) return value;
@@ -108,12 +108,10 @@ export function buildFrontmatter(input: FrontmatterInput): Record<string, unknow
     siblings: siblings.map((s) => s.key),
     subtasks: (f.subtasks ?? []).map(ref).filter((s) => s !== null),
     comment_count: commentCount,
-    assets: [...assets.values()].map((a) => ({
-      filename: a.filename,
-      path: a.relativePath,
-      mime_type: a.mimeType ?? null,
-      size: a.size ?? null,
-    })),
+    // Just the paths. The filename is the tail of the path, and the mime type and size are
+    // properties of a file sitting right there next to the document — spelling them out again in
+    // the frontmatter is a copy that can only go stale.
+    assets: [...assets.values()].map((a) => a.relativePath),
   }) as Record<string, unknown>;
 }
 

@@ -368,6 +368,9 @@ Changing any of this breaks people's existing files.
 - `<out>/<JIRA-ID>.md`, **overwritten** if it exists (re-fetching is the normal case, given
   `fetched_at`) — so the document is not a safe place for a user's own annotations.
 - `<out>/.<JIRA-ID>/` for assets — note the **leading dot**.
+- The frontmatter's `assets` is a list of **relative path strings**, not records. The filename is
+  the tail of the path, and mime type and size are properties of a file sitting right there beside
+  the document; restating them in the frontmatter is a copy that can only go stale.
 - Asset links are **relative**, so the document stays portable with its asset directory.
 - Body order: frontmatter → `# [title](<baseUrl>/browse/<KEY>)` → description → `---` → each
   comment, `---`-separated. The heading is a **link**, which is why the frontmatter carries no
@@ -378,8 +381,8 @@ Changing any of this breaks people's existing files.
 - **Absence is spelled by absence.** `prune` in `src/document/frontmatter.ts` drops any key whose
   value is `null`, `undefined`, `[]` or `{}`, recursively — there is no `resolution: null` and no
   `components: []`. It is deliberately not "falsy": `comment_count: 0` is a fact and stays. The
-  recursion means nested records go ragged, so `parent` may be just `{ key }` and one `assets`
-  entry may carry `size` where another does not.
+  recursion means nested records go ragged, so `parent` may be just `{ key }` when Jira sent
+  nothing else about it.
 - **What the document says about people is configurable**, through the `people` block and
   `src/document/people.ts` — `roles` decides who appears (`reporter`, `assignee`, `commenter`;
   empty omits all of them), `fields` decides what is recorded about them, and `nameFormat:

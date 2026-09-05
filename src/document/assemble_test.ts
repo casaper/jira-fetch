@@ -122,29 +122,20 @@ Deno.test('absent values are omitted rather than spelled out', () => {
 
 Deno.test('pruning reaches inside nested records', () => {
   const issue = issueFixture();
+  // A parent Jira told us nothing else about: no summary, no type, no status.
   issue.fields.parent = { key: 'DN-1200' };
-  const attachment = issue.fields.attachment?.[0];
-  assert(attachment);
-  delete attachment.size;
   const { markdown } = assembleDocument({
     issue,
     comments: [],
     siblings: [],
-    assets: buildManifest([attachment], issue.key),
+    assets: new Map(),
     baseUrl: 'https://example.atlassian.net',
     filters: compileFilters(undefined),
     people: DEFAULT_PEOPLE,
   });
-  const data = frontmatterOf(markdown);
 
-  // A parent with no summary, type or status collapses to the one thing it does have.
-  assertEquals(data.parent, { key: 'DN-1200' });
-  // Entries in a list go ragged rather than carrying empty placeholders.
-  assertEquals(data.assets, [{
-    filename: 'screenshot_01.png',
-    path: '.DN-1243/screenshot_01.png',
-    mime_type: 'image/png',
-  }]);
+  // It collapses to the one thing it does have, rather than three null placeholders.
+  assertEquals(frontmatterOf(markdown).parent, { key: 'DN-1200' });
 });
 
 Deno.test('people carry the configured fields, and nobody else', () => {
@@ -196,12 +187,14 @@ Deno.test('a reference to another issue carries no copy of its title', () => {
   assertFalse(JSON.stringify(data.subtasks).includes('Write the exporter'));
 });
 
-Deno.test('assets are listed with the relative path used in the body', () => {
+Deno.test('assets are listed as the relative paths used in the body', () => {
   const data = frontmatterOf(assemble().markdown);
-  const assets = data.assets as Array<Record<string, unknown>>;
-  assertEquals(assets.length, 2);
-  assertEquals(assets[0].path, '.DN-1243/screenshot_01.png');
-  assertEquals(assets[1].path, '.DN-1243/screenshot_01-20002.png');
+  // Paths, not records: the filename is the tail of the path, and mime type and size are
+  // properties of the file itself, sitting right there beside the document.
+  assertEquals(data.assets, [
+    '.DN-1243/screenshot_01.png',
+    '.DN-1243/screenshot_01-20002.png',
+  ]);
 });
 
 Deno.test('comments follow the description, each behind a horizontal rule', () => {
