@@ -13,9 +13,9 @@ Linux and Windows. See README.md for user-facing docs.
 
 ```sh
 deno task dev -- DN-1243 --out tmp   # run from source
-deno task check                       # typecheck + fmt --check + assert the JSON Schema is current
-deno lint
-deno fmt
+deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
+deno task lint
+deno task fmt
 deno task test                        # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"   # single test by name
 deno test -A src/adf/to_markdown_test.ts              # single test file
@@ -26,6 +26,9 @@ deno task build:all                   # all six release targets
 
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
 fake Jira on localhost, which is what covers the wiring in `src/main.ts`.
+
+That works only because `normalizeBaseUrl` (`src/config/config.ts`) permits plain http for loopback
+hosts. Tightening it to https-only fails every e2e test with exit 2, far from the change.
 
 **`deno compile` bakes permission flags in at build time.** `PERMISSIONS` in `scripts/build_all.ts`
 is the single source of truth and must stay identical to the `--allow-*` string in the `dev` task in
@@ -51,6 +54,9 @@ Conventions the linter cannot express — follow them anyway:
 No lint rule enforces any of these, and none forbids them either — that is deliberate. Deno has no
 `prefer-arrow` rule, and its `ban-types` is about `String`/`Object` wrappers, not `type` vs
 `interface`.
+
+These govern **new** code. Most existing source predates them and still uses `function` and
+`interface`; convert it only when already editing it, not as a sweep.
 
 Two rules need a word of warning:
 
