@@ -1,0 +1,339 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kaspi/jira-fetch/schema/jira-fetch.schema.json",
+  "title": "jira-fetch configuration",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Path or URL of this JSON Schema, for editor support",
+      "type": "string"
+    },
+    "baseUrl": {
+      "description": "Jira site, e.g. https://your-site.atlassian.net",
+      "type": "string",
+      "format": "uri"
+    },
+    "email": {
+      "description": "Atlassian account email",
+      "type": "string",
+      "format": "email",
+      "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+    },
+    "token": {
+      "description": "Atlassian API token. Prefer the JIRA_API_TOKEN environment variable.",
+      "type": "string",
+      "minLength": 1
+    },
+    "out": {
+      "description": "Output directory; relative paths resolve against the working directory",
+      "type": "string",
+      "minLength": 1
+    },
+    "allowJql": {
+      "description": "When false, the --jql flag is refused. Gates the user-facing flag only, not requests the tool makes on its own.",
+      "type": "boolean"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "description": "If non-empty, a ticket must match one of these rules to be fetched",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "description": "Project prefix of the issue key, e.g. \"DN\". Read from the key, not from the project field, so this is the only predicate decidable without fetching the issue.",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "labels": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Jira labels (what the UI calls \"tags\")"
+              },
+              "tags": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Alias for labels"
+              },
+              "field": {
+                "description": "Field name (\"Team\", \"Components\") or raw id (\"customfield_10101\") mapped to accepted values. Names are resolved against GET /rest/api/3/field.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalProperties": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A value to match, or null to match \"absent\""
+                  },
+                  "description": "Accepted values for this field"
+                }
+              },
+              "title": {
+                "type": "object",
+                "properties": {
+                  "matches": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "JavaScript regular expression tested against the summary"
+                  },
+                  "flags": {
+                    "description": "Regular expression flags, e.g. \"i\" for case-insensitive",
+                    "type": "string",
+                    "pattern": "^[dgimsuvy]*$"
+                  }
+                },
+                "required": [
+                  "matches"
+                ],
+                "additionalProperties": false,
+                "description": "Matches the issue summary against a regular expression"
+              },
+              "reporter": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Who raised the ticket; null matches an anonymous portal submission"
+              },
+              "assignee": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Who it is assigned to; null matches an unassigned issue"
+              }
+            },
+            "additionalProperties": false,
+            "description": "All predicates in a rule must match (AND). Rules within a list are OR'd."
+          }
+        },
+        "exclude": {
+          "description": "Matching any of these drops the ticket. Exclude beats include.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "description": "Project prefix of the issue key, e.g. \"DN\". Read from the key, not from the project field, so this is the only predicate decidable without fetching the issue.",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "labels": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Jira labels (what the UI calls \"tags\")"
+              },
+              "tags": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Alias for labels"
+              },
+              "field": {
+                "description": "Field name (\"Team\", \"Components\") or raw id (\"customfield_10101\") mapped to accepted values. Names are resolved against GET /rest/api/3/field.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalProperties": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A value to match, or null to match \"absent\""
+                  },
+                  "description": "Accepted values for this field"
+                }
+              },
+              "title": {
+                "type": "object",
+                "properties": {
+                  "matches": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "JavaScript regular expression tested against the summary"
+                  },
+                  "flags": {
+                    "description": "Regular expression flags, e.g. \"i\" for case-insensitive",
+                    "type": "string",
+                    "pattern": "^[dgimsuvy]*$"
+                  }
+                },
+                "required": [
+                  "matches"
+                ],
+                "additionalProperties": false,
+                "description": "Matches the issue summary against a regular expression"
+              },
+              "reporter": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Who raised the ticket; null matches an anonymous portal submission"
+              },
+              "assignee": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A value to match, or null to match \"absent\""
+                },
+                "description": "Who it is assigned to; null matches an unassigned issue"
+              }
+            },
+            "additionalProperties": false,
+            "description": "All predicates in a rule must match (AND). Rules within a list are OR'd."
+          }
+        },
+        "comments": {
+          "description": "Exclude-only by design: an include list would mean \"drop every comment not explicitly allowed\", which is a footgun on a document meant to be an archive.",
+          "type": "object",
+          "properties": {
+            "exclude": {
+              "description": "Comments matching these are left out",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "author": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "A value to match, or null to match \"absent\""
+                    },
+                    "description": "Comment author; null matches an anonymous author"
+                  }
+                },
+                "required": [
+                  "author"
+                ],
+                "additionalProperties": false,
+                "description": "Matched against a comment's author; drops the comment, never the ticket"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "Which tickets are fetched, and which comments end up in the document"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Configuration for jira-fetch"
+}
