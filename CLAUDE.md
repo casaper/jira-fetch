@@ -32,6 +32,38 @@ is the single source of truth and must stay identical to the `--allow-*` string 
 `deno.json`, or the shipped binary behaves differently from `deno run` — a bug that only appears
 after distribution.
 
+## Code style
+
+`deno lint` and `deno fmt` are the whole toolchain — no eslint, no prettier, which is the Deno
+norm. `deno task check` runs typecheck, lint, `fmt --check` and the JSON Schema freshness check, so
+it is the one command that has to pass.
+
+Formatting is settled by `deno.json`'s `fmt` block plus `.editorconfig` (which `deno fmt` reads as
+well): 2-space indent, LF, 100 columns, semicolons, **single quotes**, and `proseWrap: preserve` so
+hand-wrapped Markdown is left alone.
+
+Conventions the linter cannot express — follow them anyway:
+
+- **Arrow functions** over `function` declarations.
+- **`type`** over `interface`.
+- **String-literal unions** over `enum`.
+
+No lint rule enforces any of these, and none forbids them either — that is deliberate. Deno has no
+`prefer-arrow` rule, and its `ban-types` is about `String`/`Object` wrappers, not `type` vs
+`interface`.
+
+Two rules need a word of warning:
+
+- **`camelcase`** is on, but the frontmatter keys are snake_case on purpose — it is the output
+  contract. `UserRecord` in `src/document/frontmatter.ts` carries a targeted
+  `// deno-lint-ignore camelcase` for exactly that reason; don't widen it.
+- **`no-boolean-literal-for-arguments`** is why tests use `assert(x)` / `assertFalse(x)` rather
+  than `assertEquals(x, true)`. That reads better anyway.
+
+Rules deliberately left off: `no-console` (this is a CLI — console *is* the output),
+`no-top-level-await` (`src/main.ts` ends in one), `no-await-in-loop` (pagination and downloads are
+sequential on purpose) and `prefer-ascii` (the prose uses real typography).
+
 ## Layout
 
 ```
