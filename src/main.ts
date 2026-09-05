@@ -1,7 +1,6 @@
 /** Entry point: resolve configuration, enumerate candidate issues, and write one Markdown
  * document per issue that survives the filters. */
 
-import { join } from '@std/path';
 import { type Args, HELP, parseCliArgs, UsageError, VERSION } from './cli/args.ts';
 import {
   type Config,
@@ -12,11 +11,7 @@ import {
   resolveConfig,
 } from './config/config.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
-import { preFetchDecision, ticketDecision } from './filter/evaluate.ts';
-import type { FieldResolver } from './filter/evaluate.ts';
-import { assetDirName, buildManifest, downloadAssets } from './assets/download.ts';
-import { assembleDocument } from './document/assemble.ts';
-import type { IssueRef } from './jira/types.ts';
+import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 
 export const EXIT = {
   ok: 0,
@@ -37,120 +32,33 @@ function makeLogger(verbose: boolean) {
   };
 }
 
-/**
- * Resolves configured field names ("Team") to the `fields` key they occupy
- * ("customfield_10101"). `GET /rest/api/3/field` is called at most once, and only when a `field`
- * predicate exists — a config without one never touches the endpoint.
- */
-async function makeFieldResolver(
-  client: JiraClient,
-  names: string[],
-  log: (m: string) => void,
-): Promise<FieldResolver> {
-  if (names.length === 0) return () => undefined;
-
-  log('  resolving custom field names...');
-  const byName = new Map<string, string>();
-  for (const field of await client.getFields()) {
-    byName.set(field.name.toLowerCase(), field.id);
-    byName.set(field.id.toLowerCase(), field.id);
-    if (field.key) byName.set(field.key.toLowerCase(), field.id);
-  }
-
-  for (const name of names) {
-    if (!byName.has(name.toLowerCase())) {
-      log(`  warning: field "${name}" does not exist on this site; treating it as absent`);
-    }
-  }
-
-  return (name: string) => byName.get(name.toLowerCase());
-}
-
 /** Candidate keys, from explicit arguments first and then from the JQL query. */
-async function* candidateKeys(args: Args, client: JiraClient): AsyncGenerator<string> {
+async function* candidateKeys(args: Args, session: FetchSession): AsyncGenerator<string> {
   for (const key of args.keys) yield key;
-  if (args.jql) yield* client.searchIssueKeys(args.jql);
+  if (args.jql) yield* session.keys(args.jql);
 }
 
-async function fetchOne(
-  key: string,
-  client: JiraClient,
-  config: Config,
-  args: Args,
-  resolveField: FieldResolver,
-  log: (m: string) => void,
-  tally: Tally,
-): Promise<void> {
-  const pre = preFetchDecision(key, config.filters);
-  if (pre.excluded) {
-    tally.excluded++;
-    log(`  ${key}: skipped before fetching — ${pre.reason}`);
-    return;
+/** The CLI's half of an `Outcome`: what it prints, and how it counts. */
+function report(outcome: Outcome, tally: Tally): void {
+  switch (outcome.status) {
+    case 'written':
+      console.log(outcome.path);
+      tally.written++;
+      return;
+    case 'dryRun':
+      console.log(
+        `would write ${outcome.path}` +
+          `${outcome.assets > 0 ? ` + ${outcome.assets} asset(s)` : ''}`,
+      );
+      // Counted so the exit code still distinguishes "would have written something" from
+      // "everything was filtered"; the line says "would write" rather than "written".
+      tally.written++;
+      return;
+    case 'denied':
+      // The session already logged the reason under --verbose, where it belongs.
+      tally.excluded++;
+      return;
   }
-
-  const issue = await client.getIssue(key);
-
-  // Stage 2 runs here, before comments are paginated and before a single byte of any attachment
-  // is downloaded — that is where the cost and every disk write live.
-  const decision = ticketDecision(issue, config.filters, resolveField);
-  if (decision.excluded) {
-    tally.excluded++;
-    log(`  ${key}: skipped — ${decision.reason}`);
-    return;
-  }
-
-  let siblings: IssueRef[] = [];
-  const parentKey = issue.fields.parent?.key;
-  if (parentKey) {
-    siblings = (await client.getSubtasksOf(parentKey)).filter((s) => s.key !== issue.key);
-  }
-
-  const manifest = buildManifest(issue.fields.attachment, issue.key);
-  const comments = await client.getComments(issue.key);
-  log(
-    `  ${key}: ${comments.length} comment(s), ${manifest.size} attachment(s)` +
-      `${siblings.length > 0 ? `, ${siblings.length} sibling(s)` : ''}`,
-  );
-
-  const { markdown, skippedComments } = assembleDocument({
-    issue,
-    comments,
-    siblings,
-    assets: manifest,
-    baseUrl: config.baseUrl,
-    filters: config.filters,
-    people: config.people,
-  });
-  if (skippedComments > 0) log(`  ${key}: ${skippedComments} comment(s) dropped by filter`);
-
-  const documentPath = join(config.outDir, `${issue.key}.md`);
-
-  if (args.dryRun) {
-    console.log(
-      `would write ${documentPath}${manifest.size > 0 ? ` + ${manifest.size} asset(s)` : ''}`,
-    );
-    // Counted so the exit code still distinguishes "would have written something" from
-    // "everything was filtered"; the summary line says "would write" rather than "written".
-    tally.written++;
-    return;
-  }
-
-  await Deno.mkdir(config.outDir, { recursive: true });
-  if (manifest.size > 0) {
-    const result = await downloadAssets(
-      client,
-      manifest,
-      join(config.outDir, assetDirName(issue.key)),
-      log,
-    );
-    for (const failure of result.failures) {
-      console.error(`  ${key}: attachment ${failure.filename} failed — ${failure.error}`);
-    }
-  }
-
-  await Deno.writeTextFile(documentPath, markdown);
-  console.log(documentPath);
-  tally.written++;
 }
 
 /** The environment variables this tool reads. Listed once so `.env` values and the real
@@ -253,11 +161,11 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   const tally: Tally = { written: 0, excluded: 0, errors: 0 };
 
   try {
-    const resolveField = await makeFieldResolver(client, config.filters.fieldNames, log);
+    const session = await createSession({ config, client, log, dryRun: args.dryRun });
 
-    for await (const key of candidateKeys(args, client)) {
+    for await (const key of candidateKeys(args, session)) {
       try {
-        await fetchOne(key, client, config, args, resolveField, log, tally);
+        report(await session.fetch(key), tally);
       } catch (cause) {
         // One bad issue must not abort a batch.
         tally.errors++;
