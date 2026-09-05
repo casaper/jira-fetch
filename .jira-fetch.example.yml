@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
 
-# Copy to .jira-fetch.yaml and commit it: the filters below then apply to everyone working in
+# Copy to .jira-fetch.yml and commit it: the filters below then apply to everyone working in
 # this project. Credentials do not belong in here — keep JIRA_API_TOKEN in .env.local (which
 # your .gitignore should cover), in the environment, or pass --token.
 

@@ -8,3 +8,4 @@ tmp/
 # theirs, so their filters apply to everyone. See .jira-fetch.example.yaml.
 .jira-fetch.json
 .jira-fetch.yml
+tmp
