@@ -6,7 +6,13 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## 0.4.0 — 2026-09-05
+## 0.4.1 — 2026-09-05
+
+### Documentation
+
+- **mcp:** document keeping the policy and token outside the project ([588c303](https://github.com/casaper/jira-fetch/commit/588c3038854becf822fc853c97ae791fad282848))
+
+## 0.4.0 — 2026-09-06
 
 ### Breaking changes
 
