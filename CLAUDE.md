@@ -37,13 +37,24 @@ deno task release patch               # bump + changelog + commit + tag
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
 fake Jira on localhost, which is what covers the wiring in `src/main.ts`.
 
-It does need them **absent**: env beats the config file in `resolveConfig`, and the e2e harness
-passes the fake's origin _through_ a config file, so an exported `JIRA_BASE_URL` redirects the
-suite at a real site — 8 failures, or real authenticated requests. Run
-`env -u JIRA_BASE_URL -u JIRA_EMAIL -u JIRA_API_TOKEN deno test -A` from a shell that has them.
+**The suite is sealed, and `run` is what seals it.** `run(argv, deps)` takes an optional `env`; when
+it is given, that record is used verbatim — no `.env` file is read and `Deno.env` is never
+consulted, not even for `HOME`. `withJira` in `test/e2e_test.ts` passes `{ env: { JIRA_API_TOKEN:
+'t' } }`, so an exported `JIRA_BASE_URL` no longer redirects the suite at a real site and
+`env -u JIRA_BASE_URL … deno test` is no longer needed.
 
-That works only because `normalizeBaseUrl` (`src/config/config.ts`) permits plain http for loopback
-hosts. Tightening it to https-only fails every e2e test with exit 2, far from the change.
+That parameter is load-bearing rather than tidy. `.env` and `.env.local` are credential sources now,
+found by walking **upward**, and this repo has an untracked `.env.local` holding a real
+`JIRA_API_TOKEN` — so an unsealed run started anywhere in the tree picks it up. Nothing asserts the
+token, so a leak would not turn the suite red; it would just quietly stop being hermetic. Any new
+entry point that calls `run` from a test must pass an explicit `env`.
+
+The same file is why **`deno task dev` is live-fire in this repo**: it resolves a real token from
+`.env.local` while `baseUrl` still comes from wherever you point it.
+
+The fake-Jira-on-localhost approach works at all only because `normalizeBaseUrl`
+(`src/config/config.ts`) permits plain http for loopback hosts. Tightening it to https-only fails
+every e2e test with exit 2, far from the change.
 
 **`deno compile` bakes permission flags in at build time.** `PERMISSIONS` in `scripts/build_all.ts`
 is the single source of truth and must stay identical to the `--allow-*` string in the `dev` task in
@@ -147,6 +158,39 @@ spec/                   vendored Atlassian schemas, pinned (see below)
 ```
 
 Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`.
+
+## Configuration is discovered by closeness, and meant to be committed
+
+`resolveConfig` resolves **per key**, across four layers:
+
+```
+CLI flag  >  process env  >  .env.local  >  .env  >  config file
+```
+
+`src/main.ts` merges the first two into one record and hands it over; `resolveConfig` itself never
+reads ambient state. `loadDotenv` and `discoverConfigFile` share one `ancestors()` walk, so the two
+closeness rules cannot drift: the **nearest** directory holding a match wins **outright**, and
+levels never merge. Both walks run to the filesystem root.
+
+That "outright" is the point of the feature, not an implementation detail. A project commits
+`.jira-fetch.yaml` so its filters — and `allowJql: false` — apply to everyone working in the tree;
+if a developer's `~/.config/jira-fetch.yaml` could layer underneath, the project's policy would be
+overridable from a home directory.
+
+Nine config file names are searched in each directory, `.conf` variants first, then the home
+locations (including the pre-0.2 `~/.config/jira-fetch/config.*`). `parseConfigText` dispatches on
+`.endsWith('.json')`, so a new `.yml`/`.yaml` name needs no parser change.
+
+**The token warning classifies by location only.** `isHomeConfig` asks whether the file sits in
+`$HOME`, `$HOME/.config` or `$HOME/.config/jira-fetch` — nothing reads `.gitignore` or shells out to
+git, because the tool has no business guessing what is tracked. The condition is that the file _has_
+a `token` key, not that the token was resolved from it: a secret on disk in a project is the
+problem, whether or not `JIRA_API_TOKEN` overrode it today. Warnings are returned on `Config` rather
+than logged, which keeps `resolveConfig` pure and the message directly testable.
+
+`.env` parsing is `@std/dotenv`'s `parse()`, never `load()`. `load()` is deprecated upstream, and
+its `export: true` mode writes `Deno.env` — which would make a `.env` value indistinguishable from a
+genuinely exported one and silently jump the queue above. `parse()` needs no permission at all.
 
 ## Zod is the single source of truth for configuration
 

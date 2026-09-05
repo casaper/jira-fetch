@@ -4,7 +4,7 @@ Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments a
 
 > **This project was written entirely by AI.** Every line of code, test and document in this
 > repository was produced by Claude in a series of prompted sessions — it is fully vibe-coded.
-> It is tested (139 tests, no network needed) and it does the job, but it has not been
+> It is tested (158 tests, no network needed) and it does the job, but it has not been
 > line-by-line reviewed by a human. Read it before you trust it with credentials.
 
 ```sh
@@ -37,10 +37,42 @@ export JIRA_EMAIL=you@example.com
 export JIRA_API_TOKEN=...
 ```
 
-Values resolve per key in the order **CLI flags → environment → config file**, so a flag for one key
-never discards the file's value for another. The config file is `.jira-fetch.json` (or `.yaml`),
-searched upward from the working directory, then `~/.config/jira-fetch/config.json`. Keeping the
-token in the environment rather than the file is the safer habit.
+Or put them in a `.env` (or `.env.local`) file beside your project:
+
+```sh
+JIRA_BASE_URL=https://your-site.atlassian.net
+JIRA_EMAIL=you@example.com
+JIRA_API_TOKEN=...
+```
+
+Values resolve per key in the order **CLI flags → environment → `.env` → config file**, so a flag
+for one key never discards the file's value for another. Both files are found by **closeness** —
+the nearest ancestor directory that has one wins, so running the tool from a subdirectory picks up
+the project's settings:
+
+|                                                   |                                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------------------- |
+| `.env`, `.env.local`                              | nearest ancestor directory holding either; `.env.local` shadows `.env` |
+| `.jira-fetch.yml` `.yaml` `.json`                 | searched upward from the working directory                             |
+| `.jira-fetch.conf.yml` `.yaml` `.json`            | same, checked first within each directory                              |
+| `jira-fetch.conf.yml` `.yaml` `.json`             | same again, without the leading dot                                    |
+| `~/.config/jira-fetch[.conf].yml` `.yaml` `.json` | your own defaults                                                      |
+| `~/.jira-fetch.conf.yml` `.yaml` `.json`          | likewise                                                               |
+
+The **nearest config file found is the only one read** — configurations do not layer. Both walks run
+to the filesystem root, so a `~/.env` applies everywhere, exactly as `~/.config/jira-fetch.yaml`
+does.
+
+### Commit the config, not the token
+
+The config file is meant to be **checked into your project**. Its filters — and `allowJql: false` —
+then apply to everyone working in that tree, which is the point of having them in a file rather
+than in someone's shell history.
+
+Your API token is not part of that. Keep it in `.env.local`, in the environment, or pass `--token`,
+and add `.env.local` to the project's `.gitignore`. If a config file inside a project sets `token`,
+the tool says so on every run. A token in your own `~/.config/jira-fetch.yaml` is your business and
+is left alone.
 
 ## Usage
 
@@ -60,23 +92,27 @@ because every issue was excluded by a filter.
 ## Filters
 
 Filters decide which tickets are fetched at all, and which comments make it into the document. Copy
-`.jira-fetch.example.json` to `.jira-fetch.json` to start.
+`.jira-fetch.example.yaml` to `.jira-fetch.yaml` to start.
 
-```jsonc
-{
-  "$schema": "./schema/jira-fetch.schema.json",
-  "filters": {
-    "exclude": [
-      { "project": ["SUP"] },
-      { "labels": ["wontfix"] },
-      { "field": { "Team": ["Platform"] } },
-      { "title": { "matches": "^spike:", "flags": "i" } },
-      { "reporter": [null] }
-    ],
-    "comments": { "exclude": [{ "author": ["Automation for Jira"] }] }
-  }
-}
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
+filters:
+  exclude:
+    - project: [SUP]
+    - labels: [wontfix]
+    - field:
+        Team: [Platform]
+    - title:
+        matches: '^spike:'
+        flags: i
+    - reporter: [null]
+  comments:
+    exclude:
+      - author: [Automation for Jira]
 ```
+
+JSON works just as well — every name above has a `.json` spelling, and there the binding is a
+`"$schema"` key rather than a comment.
 
 - **Every predicate in a rule must match** (AND); **rules in a list are OR'd**. So the example drops
   a ticket in project SUP, _or_ labelled `wontfix`, _or_ …
@@ -94,6 +130,9 @@ Filters decide which tickets are fetched at all, and which comments make it into
 
 The `$schema` line gives editors autocomplete and inline validation. The schema is generated from
 the same Zod definitions the CLI validates against (`deno task schema`), so the two cannot drift.
+It is published at
+<https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json>; point
+`$schema` at a local copy instead if you would rather not fetch it.
 
 ### What "never fetched" really means
 
@@ -109,7 +148,7 @@ on disk.
 
 ### Restricting JQL
 
-Setting `"allowJql": false` in a config shipped alongside the binary makes `--jql` fail with exit
+Setting `allowJql: false` in a config shipped alongside the binary makes `--jql` fail with exit
 code 2 — useful when handing the tool to someone who should only fetch tickets by key. It gates the
 flag only, not the requests the tool makes on its own.
 
