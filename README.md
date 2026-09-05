@@ -122,6 +122,7 @@ deno task fmt
 deno task test       # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"
 deno task schema     # regenerate schema/jira-fetch.schema.json
+deno task types      # regenerate src/jira/schema_types.ts from the vendored specs
 deno task build      # host binary into dist/
 deno task build:all  # all six release targets
 
@@ -129,6 +130,11 @@ deno task hooks      # once per clone: enable the Conventional Commits hook
 deno task changelog  # regenerate CHANGELOG.md from the commit history
 deno task release patch   # bump, changelog, commit, tag
 ```
+
+The Jira and ADF types in `src/jira/schema_types.ts` are generated from Atlassian's own published
+schemas, vendored and pinned under `spec/` (both Apache-2.0 — see [spec/NOTICE](spec/NOTICE)).
+`deno task check` fails if that file has drifted from them. Only `deno task vendor:spec` touches
+the network, and it is run by hand.
 
 Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and
 are checked by `.githooks/commit-msg`; `deno task hooks` is what turns that on in a fresh clone.
@@ -146,6 +152,11 @@ zod are all MIT. The **compiled binaries** are a slightly different matter — `
 the Deno runtime and V8 into each artifact, so a release carries their notices too: Deno and `@std`
 under MIT, V8 under BSD-3-Clause, and the Rust crates Deno links under MIT/Apache-2.0. All
 permissive, none copyleft; the obligation is attribution, not disclosure.
+
+`src/jira/schema_types.ts` is generated from Atlassian's published Jira and ADF schemas, which are
+**Apache-2.0** and vendored under `spec/`. That file is compiled into the binaries, so the release
+carries Atlassian's attribution as well — kept in [spec/NOTICE](spec/NOTICE) and in the generated
+file's own header. Apache-2.0 is permissive and imposes no copyleft on the rest of this project.
 
 One honest footnote to the copyright line, given the disclaimer above: purely AI-generated work may
 not attract copyright protection in the first place in some jurisdictions, the US among them. MIT is

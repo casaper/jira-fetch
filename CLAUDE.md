@@ -24,6 +24,8 @@ deno task test                        # or: deno test -A
 deno test -A --filter "excludes anonymous reporter"   # single test by name
 deno test -A src/adf/to_markdown_test.ts              # single test file
 deno task schema                      # regenerate schema/jira-fetch.schema.json
+deno task types                       # regenerate src/jira/schema_types.ts from spec/
+deno task vendor:spec                 # re-fetch the Atlassian schemas into spec/ (the only networked task)
 deno task build                       # host binary -> dist/
 deno task build:all                   # all six release targets
 deno task hooks                       # once per clone: enable the commit-msg hook
@@ -141,6 +143,7 @@ src/adf/to_markdown.ts  ADF -> Markdown
 src/assets/download.ts  filename sanitising, the attachment manifest, downloads
 src/document/           frontmatter + document assembly
 scripts/                build matrix, JSON Schema generation, commit lint, changelog, release
+spec/                   vendored Atlassian schemas, pinned (see below)
 ```
 
 Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`.
@@ -172,6 +175,58 @@ The one thing that cannot be inferred is `CompiledTicketRule` in `src/filter/rul
 from the Zod type (`PredicateForms extends Record<keyof TicketRule, unknown>`), so adding a
 predicate to the schema is a compile error until it is given a compiled form and handled in
 `ruleMatchesIssue`.
+
+## Jira types are derived from Atlassian's schemas
+
+`src/jira/schema_types.ts` is **generated** — `deno task types`, checked by `deno task check`.
+Do not edit it. It comes from two vendored, pinned, Apache-2.0 specs in `spec/`:
+
+- `jira-platform.subset.json` — the Jira Cloud OpenAPI document, pruned to the 30-schema
+  transitive closure this tool reads (38 KB, not the 3.6 MB original).
+- `adf-schema.json` — the Atlassian Document Format schema. **The OpenAPI document does not
+  contain ADF**; it types `Comment.body` as prose only. Bridging the two is what gives
+  `JiraComment.body` a real `AdfNode` type.
+
+`deno task vendor:spec` is the only task that touches the network, and it is run by hand. Nothing
+in `deno task check` fetches anything — that is what keeps the check reproducible offline.
+`spec/` is excluded from `deno fmt`, or re-vendoring and `fmt --check` would fight.
+
+**Why the client is not generated.** `openapi-generator-cli` runs cleanly on this spec and emits
+70,770 lines to replace the 314 in `client.ts` + `types.ts` — but the spec types an issue's
+`fields` as `{[key: string]: any}` and a comment's `body` as `any`, which is everything this tool
+reads. The generated client also carries none of what `client.ts` is actually for: retry,
+`Retry-After`, the `MAX_PAGES` bound, Basic auth, and the login-page-with-200 detection. It would
+have to be wrapped in all of that anyway. `client.ts` stays hand-written on purpose.
+
+**Two overlays in `scripts/gen_types.ts` are load-bearing**, because the spec under-specifies
+responses — 61% of its object schemas carry no `required` at all, and only 19.3% of properties are
+marked required:
+
+- `REQUIRED_OVERLAY` pins the fields the code treats as invariants. Without it every field becomes
+  optional and `src/` stops compiling in 15 places.
+- `NULLABLE_OVERLAY` restores `| null` on `author`/`updateAuthor`. Jira sends an explicit null for
+  an anonymous account, and the filter engine matches that deliberately; the spec never says so.
+
+`src/jira/types_test.ts` guards both at compile time. Changing an overlay without updating it is
+the failure this catches.
+
+The emitter **throws on any JSON Schema construct it does not recognise** rather than emitting
+`unknown` — otherwise an upstream change would quietly weaken the types. Genuinely untyped spots
+(`extension.attrs.parameters`, `EntityProperty.value`) are listed by path in `TYPE_OVERRIDE`, so a
+_new_ one is still a build failure.
+
+**`AdfNode.type` is deliberately open** (`AdfNodeType | (string & Record<never, never>)`). Jira
+ships node kinds ahead of the published schema, and `to_markdown.ts` falls through an unrecognised
+node into its `content` rather than losing the document. A closed union would turn that graceful
+degradation into a compile error, and then into dropped content.
+
+`AdfAttrs`/`AttrsOf` are a **catalogue, not a cast**. The converter reads attrs defensively
+(`typeof node.attrs?.x === 'string' ? … : default`) because the payload is unvalidated wire data;
+`node.attrs as AttrsOf<'panel'>` would assert a shape nothing checked and let `undefined` reach
+string operations. Use them to know what exists, not to skip the guard.
+
+`JiraIssueFields` stays hand-written for the same reason it cannot be derived: the spec models
+`fields` as an untyped bag, and its index signature is what makes `customfield_NNNNN` reachable.
 
 ## Filters have three evaluation stages
 
