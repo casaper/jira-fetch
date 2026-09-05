@@ -10,6 +10,10 @@
     "fmt": "deno fmt",
     "test": "deno test -A",
     "schema": "deno run -A scripts/gen_schema.ts",
+    "hooks": "git config core.hooksPath .githooks && echo 'commit-msg hook enabled'",
+    "commitlint": "deno run -A scripts/commit_lint.ts",
+    "changelog": "deno run -A scripts/changelog.ts",
+    "release": "deno run -A scripts/release.ts",
     "build": "deno run -A scripts/build_all.ts --host",
     "build:all": "deno run -A scripts/build_all.ts"
   },
