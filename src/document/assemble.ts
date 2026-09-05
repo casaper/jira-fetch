@@ -26,7 +26,22 @@ export interface AssembleResult {
   skippedComments: number;
 }
 
-/** `### Kaspar Vollenweider — 2026-09-03T10:34:04.963+0200 (edited …)`.
+const TIMESTAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/;
+
+/** `2026-09-03T10:34:04.963+0200` -> `2026-09-03 10:34`, for a heading a person reads.
+ *
+ * A textual trim, deliberately not a `Date` round-trip: it keeps the wall-clock time Jira sent,
+ * which is the one the commenter saw, instead of shifting it to whatever timezone the machine
+ * running the fetch happens to be in. Seconds and the offset are dropped because a heading is not
+ * where anyone reconstructs an instant — `created_at` and `updated_at` in the frontmatter keep the
+ * full stamp for that. Anything that does not match is passed through untouched rather than
+ * mangled. */
+const readable = (timestamp: string): string => {
+  const match = TIMESTAMP.exec(timestamp);
+  return match ? `${match[1]} ${match[2]}` : timestamp;
+};
+
+/** `### Kaspar Vollenweider — 2026-09-03 10:34 (edited 2026-09-03 10:38)`.
  *
  * Both halves are optional. An anonymous comment, or one whose author the `people` config leaves
  * out, is headed by its date alone — absence is spelled by absence here too, rather than by a
@@ -35,9 +50,9 @@ function commentHeading(comment: JiraComment, people: PeopleConfig): string {
   const author = people.roles.includes('commenter')
     ? personLabel(comment.author, people)
     : undefined;
-  const when = comment.created ?? '';
+  const when = comment.created ? readable(comment.created) : '';
   const edited = comment.updated && comment.updated !== comment.created
-    ? ` (edited ${comment.updated})`
+    ? ` (edited ${readable(comment.updated)})`
     : '';
   const head = [author, when].filter((part): part is string => Boolean(part)).join(' — ');
   return `### ${head || 'Comment'}${edited}`;

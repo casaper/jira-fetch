@@ -162,14 +162,14 @@ Deno.test('a role left out of the config disappears from the document', () => {
   assertFalse('assignee' in data);
   assertFalse('reporter' in data);
   // The comment heading falls back to its date alone.
-  assertStringIncludes(markdown, '### 2026-08-05T11:00:00.000+0200');
+  assertStringIncludes(markdown, '### 2026-08-05 11:00');
   assertFalse(markdown.includes('Kim Rivera —'));
 });
 
 Deno.test('initials shorten a name everywhere it appears', () => {
   const { markdown } = assemble(undefined, people({ nameFormat: 'initials' }));
   assertEquals(frontmatterOf(markdown).assignee, { name: 'KR', email: 'kim@example.com' });
-  assertStringIncludes(markdown, '### KR — 2026-08-05T11:00:00.000+0200');
+  assertStringIncludes(markdown, '### KR — 2026-08-05 11:00');
 });
 
 Deno.test('parent, siblings and subtasks are recorded', () => {
@@ -201,12 +201,55 @@ Deno.test('comments follow the description, each behind a horizontal rule', () =
   const { markdown } = assemble();
   const body = markdown.slice(markdown.indexOf('\n---\n', 4) + 5);
   assertEquals(body.split('\n---\n').length - 1, 3);
-  assertStringIncludes(markdown, '### Kim Rivera — 2026-08-05T11:00:00.000+0200');
+  assertStringIncludes(markdown, '### Kim Rivera — 2026-08-05 11:00');
+});
+
+Deno.test('comment headings carry a readable timestamp, not a full ISO stamp', () => {
+  const { markdown } = assembleDocument({
+    issue: issueFixture(),
+    comments: [{
+      id: '1',
+      author: { displayName: 'Kim Rivera' },
+      created: '2026-09-03T09:35:31.727+0200',
+      updated: '2026-09-03T09:38:07.056+0200',
+      body: { type: 'doc', content: [] },
+    }],
+    siblings: [],
+    assets: new Map(),
+    baseUrl: 'https://example.atlassian.net',
+    filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
+  });
+
+  // Minutes, no seconds and no offset — and the wall-clock time Jira sent, not this machine's.
+  // The frontmatter keeps the full stamp; a heading is not where anyone reconstructs an instant.
+  assertStringIncludes(
+    markdown,
+    '### Kim Rivera — 2026-09-03 09:35 (edited 2026-09-03 09:38)',
+  );
+});
+
+Deno.test('a timestamp in an unexpected shape is passed through rather than mangled', () => {
+  const { markdown } = assembleDocument({
+    issue: issueFixture(),
+    comments: [{
+      id: '1',
+      author: { displayName: 'Kim Rivera' },
+      created: 'sometime',
+      body: { type: 'doc', content: [] },
+    }],
+    siblings: [],
+    assets: new Map(),
+    baseUrl: 'https://example.atlassian.net',
+    filters: compileFilters(undefined),
+    people: DEFAULT_PEOPLE,
+  });
+  assertStringIncludes(markdown, '### Kim Rivera — sometime');
 });
 
 Deno.test('an anonymous comment is headed by its date, not by a placeholder name', () => {
   const { markdown } = assemble();
-  assertStringIncludes(markdown, '### 2026-08-06T09:30:00.000+0200');
+  assertStringIncludes(markdown, '### 2026-08-06 09:30');
   assertFalse(markdown.includes('Anonymous'));
 });
 

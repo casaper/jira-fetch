@@ -390,6 +390,9 @@ Changing any of this breaks people's existing files.
   through `personRecord`/`personLabel` so they cannot drift into saying different amounts about the
   same person. None of it reaches the filter engine: `reporter`/`assignee` predicates read the
   issue payload, so hiding someone never changes which tickets are fetched.
+- Comment headings carry `YYYY-MM-DD HH:MM`, trimmed textually from Jira's stamp so it keeps the
+  wall-clock time the commenter saw rather than shifting to the fetching machine's timezone. The
+  full stamp stays in the frontmatter's `created_at`/`updated_at`.
 - An anonymous comment is headed by its date alone. There is no `Anonymous` placeholder — it would
   read as a real display name, and absence is already spelled by absence everywhere else.
 - Exit codes: `0` success · `1` runtime error · `2` usage/config error · `3` nothing written because
