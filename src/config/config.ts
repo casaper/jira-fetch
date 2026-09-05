@@ -204,6 +204,45 @@ const normalizeBaseUrl = (raw: string): string => {
   return trimmed;
 };
 
+/** The environment variable each resolved key can also come from, for error messages. */
+const ENV_NAMES = {
+  baseUrl: 'JIRA_BASE_URL',
+  email: 'JIRA_EMAIL',
+  token: 'JIRA_API_TOKEN',
+  out: 'JIRA_FETCH_OUT',
+} as const;
+
+/** A value that is *entirely* a variable reference, `$NAME` or `${NAME}`. */
+const UNEXPANDED = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/;
+
+/**
+ * Refuses a value that is a variable reference the `.env` layer never expanded.
+ *
+ * `@std/dotenv` expands `$NAME` **only in unquoted values** — `TOKEN="$OTHER"` keeps the dollar
+ * sign and the literal name, which is the opposite of both shell and npm `dotenv`. A `.env` written
+ * the way a shell would read it therefore yields a perfectly well-formed credential that happens to
+ * be a variable name, and Jira answers that with `404 Issue does not exist or you do not have
+ * permission to see it` — an error pointing nowhere near the cause. An unresolved reference can
+ * also arrive as the literal string `undefined`, which is what that expansion produces for a name
+ * it cannot find.
+ *
+ * Only a value equal to the whole reference is rejected. A substring match would break a password
+ * that legitimately contains a `$`, which is the same class of silent credential corruption this
+ * is meant to catch.
+ */
+const assertExpanded = (values: Partial<Record<keyof typeof ENV_NAMES, string>>): void => {
+  const bad = Object.entries(values)
+    .filter(([, value]) => value !== undefined && (UNEXPANDED.test(value) || value === 'undefined'))
+    .map(([key, value]) =>
+      `${ENV_NAMES[key as keyof typeof ENV_NAMES]} is the literal text "${value}"`
+    );
+  if (bad.length === 0) return;
+  throw new ConfigError(
+    `unexpanded variable reference:\n  - ${bad.join('\n  - ')}\n` +
+      '  A .env value is expanded only when it is unquoted: write NAME=$OTHER, not NAME="$OTHER".',
+  );
+};
+
 export const resolveConfig = (opts: ResolveOptions): Config => {
   const { flags, env, file, filePath, cwd, home } = opts;
 
@@ -228,6 +267,8 @@ export const resolveConfig = (opts: ResolveOptions): Config => {
   }
 
   const out = pick(flags.out, env.JIRA_FETCH_OUT, file?.out) ?? cwd;
+
+  assertExpanded({ baseUrl, email, token, out });
 
   const warnings: string[] = [];
   // A config file is meant to be committed, so a token in one inside a project tree is a secret

@@ -4,7 +4,7 @@ Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments a
 
 > **This project was written entirely by AI.** Every line of code, test and document in this
 > repository was produced by Claude in a series of prompted sessions — it is fully vibe-coded.
-> It is tested (158 tests, no network needed) and it does the job, but it has not been
+> It is tested (no credentials or network needed) and it does the job, but it has not been
 > line-by-line reviewed by a human. Read it before you trust it with credentials.
 
 ```sh
@@ -44,6 +44,11 @@ JIRA_BASE_URL=https://your-site.atlassian.net
 JIRA_EMAIL=you@example.com
 JIRA_API_TOKEN=...
 ```
+
+Point one key at another **unquoted** — `JIRA_API_TOKEN=$ATLASSIAN_API_TOKEN`, never
+`JIRA_API_TOKEN="$ATLASSIAN_API_TOKEN"`. A quoted value is taken literally, which would otherwise
+send Jira a variable name as your token and get back a 404 on the issue; the tool refuses such a
+value instead.
 
 Values resolve per key in the order **CLI flags → environment → `.env` → config file**, so a flag
 for one key never discards the file's value for another. Both files are found by **closeness** —

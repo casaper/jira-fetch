@@ -190,7 +190,20 @@ than logged, which keeps `resolveConfig` pure and the message directly testable.
 
 `.env` parsing is `@std/dotenv`'s `parse()`, never `load()`. `load()` is deprecated upstream, and
 its `export: true` mode writes `Deno.env` — which would make a `.env` value indistinguishable from a
-genuinely exported one and silently jump the queue above. `parse()` needs no permission at all.
+genuinely exported one and silently jump the queue above.
+
+**`parse()` expands `$NAME` only in _unquoted_ values.** `TOKEN="$OTHER"` — the spelling a shell
+reads correctly, and the one npm `dotenv` expands — comes back as the literal text `$OTHER`, and a
+name it cannot resolve comes back as the literal text `undefined`. That yields a well-formed
+credential made of a variable name, which Jira answers with `404 Issue does not exist or you do not
+have permission to see it`: an error pointing nowhere near its cause. `assertExpanded`
+(`src/config/config.ts`) refuses a resolved value that is _entirely_ a reference, for the four keys
+the tool reads and no others. Matching the whole value is what keeps a password containing a `$`
+intact.
+
+The expansion also **reads `Deno.env`**, so `parse()` is pure with respect to mutation but not to
+ambient reads, and it throws `NotCapable` without `--allow-env` as soon as a value contains an
+unquoted `$`. Do not take that permission away on the grounds that parsing needs none.
 
 ## Zod is the single source of truth for configuration
 

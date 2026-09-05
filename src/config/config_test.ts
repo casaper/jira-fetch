@@ -401,3 +401,58 @@ Deno.test('without a known home directory nothing is treated as personal', () =>
   });
   assertEquals(config.warnings.length, 1);
 });
+
+/* A `.env` written the way a shell would read it — `TOKEN="$OTHER"` — is the case that sent a
+ * twenty-character variable name to Jira as an API token and came back as a 404 on the issue. */
+
+Deno.test('a credential that is only a variable reference is refused', () => {
+  const error = assertThrows(
+    () => resolve({}, { ...ENV, JIRA_API_TOKEN: '$ATLASSIAN_API_TOKEN' }),
+    ConfigError,
+  );
+  assertStringIncludes(error.message, 'JIRA_API_TOKEN');
+  assertStringIncludes(error.message, '$ATLASSIAN_API_TOKEN');
+  assertStringIncludes(error.message, 'unquoted');
+});
+
+Deno.test('the braced form is refused too, and every offending key is named at once', () => {
+  const error = assertThrows(
+    () => resolve({}, { JIRA_BASE_URL: '${SITE}', JIRA_EMAIL: '$WHO', JIRA_API_TOKEN: '${TOK}' }),
+    ConfigError,
+  );
+  assertStringIncludes(error.message, 'JIRA_BASE_URL');
+  assertStringIncludes(error.message, 'JIRA_EMAIL');
+  assertStringIncludes(error.message, 'JIRA_API_TOKEN');
+});
+
+Deno.test('the literal string `undefined` is refused: it is a reference that resolved to nothing', () => {
+  const error = assertThrows(
+    () => resolve({}, { ...ENV, JIRA_EMAIL: 'undefined' }),
+    ConfigError,
+  );
+  assertStringIncludes(error.message, 'JIRA_EMAIL');
+});
+
+Deno.test('a credential that merely contains a dollar sign is left alone', () => {
+  const config = resolve({}, { ...ENV, JIRA_API_TOKEN: 'p$ssw0rd$' });
+  assertEquals(config.token, 'p$ssw0rd$');
+});
+
+Deno.test('a config-file token that is a bare reference is refused as well', () => {
+  assertThrows(() => resolve({}, {}, { ...ENV_FILE, token: '$TOKEN_FROM_SOMEWHERE' }), ConfigError);
+});
+
+Deno.test('.env expands a reference only when the value is unquoted', async () => {
+  await withTempDir(async (root) => {
+    await Deno.writeTextFile(
+      join(root, '.env'),
+      ['SOURCE=real-token', 'PLAIN=$SOURCE', 'QUOTED="$SOURCE"'].join('\n'),
+    );
+    const env = await loadDotenv(root);
+    assertEquals(env.PLAIN, 'real-token');
+    // Upstream behaviour, and the reason `assertExpanded` exists: quoting suppresses expansion,
+    // the opposite of shell and of npm `dotenv`. If this ever starts failing, `@std/dotenv` has
+    // changed its mind and the guard has become belt-and-braces rather than load-bearing.
+    assertEquals(env.QUOTED, '$SOURCE');
+  });
+});
