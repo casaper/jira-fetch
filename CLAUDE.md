@@ -15,7 +15,7 @@ way when adding one; the shipped binaries already embed Deno and V8.
 ## Commands
 
 ```sh
-deno task dev -- DN-1243 --out tmp   # run from source
+deno task dev DN-1243 --out tmp      # run from source (no `--`: deno forwards it literally)
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
 deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
 deno task lint
@@ -120,6 +120,8 @@ tree and runs `deno task check` before committing. Pushing and `deno task build:
 
 `CHANGELOG.md` is generated, never hand-edited — a careless subject line becomes a careless
 changelog entry. Non-conventional subjects are not silently dropped; they collect under "Other".
+`deno task changelog --check` verifies a release commit carries a current file; it is deliberately
+not part of `deno task check`, which would then fail on every unreleased commit.
 
 **The version string lives in two files**: `deno.json` and `VERSION` in `src/cli/args.ts`, which
 `--help` prints. Nothing at type level can hold them equal, so `scripts/release.ts` owns both and

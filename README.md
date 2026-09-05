@@ -24,7 +24,7 @@ Grab the binary for your platform from the release artifacts — it is self-cont
 Deno installation. Or run from source:
 
 ```sh
-deno task dev -- DN-1243
+deno task dev DN-1243
 ```
 
 ## Credentials
