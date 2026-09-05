@@ -15,7 +15,8 @@ export function generate(): string {
     JSON.stringify(
       {
         $schema: 'http://json-schema.org/draft-07/schema#',
-        $id: 'https://github.com/kaspi/jira-fetch/schema/jira-fetch.schema.json',
+        $id:
+          'https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json',
         title: 'jira-fetch configuration',
         ...schema,
       },
