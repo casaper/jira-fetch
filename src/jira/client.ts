@@ -10,7 +10,7 @@ export class JiraError extends Error {
   }
 }
 
-export interface ClientOptions {
+export type ClientOptions = {
   baseUrl: string;
   email: string;
   token: string;
@@ -19,7 +19,7 @@ export interface ClientOptions {
   maxRetries?: number;
   /** Injectable for tests, so retry logic does not make the suite slow. */
   sleep?: (ms: number) => Promise<void>;
-}
+};
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
