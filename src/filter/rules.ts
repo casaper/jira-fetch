@@ -7,10 +7,10 @@
  * from the issue key alone.
  */
 
-import type { CommentRule, FiltersConfig, TicketRule, ValueMatcher } from "../config/schema.ts";
+import type { CommentRule, FiltersConfig, TicketRule, ValueMatcher } from '../config/schema.ts';
 
 export type { CommentRule, FiltersConfig, TicketRule, ValueMatcher };
-export { ConfigError } from "../config/errors.ts";
+export { ConfigError } from '../config/errors.ts';
 
 /** A set of accepted values plus whether "absent" (`null` in the config) is one of them. */
 export interface MatchSet {
@@ -39,7 +39,7 @@ type PredicateForms = {
 } extends infer T ? T extends Record<keyof TicketRule, unknown> ? T : never : never;
 
 export type CompiledTicketRule =
-  & { [K in Exclude<keyof TicketRule, "tags">]?: PredicateForms[K] }
+  & { [K in Exclude<keyof TicketRule, 'tags'>]?: PredicateForms[K] }
   & {
     /** True when every predicate in this rule is decidable from the issue key alone. */
     preFetch: boolean;
@@ -72,7 +72,7 @@ function buildMatchSet(raw: ValueMatcher[]): MatchSet {
 
 function compileTicketRule(rule: TicketRule): CompiledTicketRule {
   const compiled: CompiledTicketRule = {
-    preFetch: Object.keys(rule).every((k) => k === "project"),
+    preFetch: Object.keys(rule).every((k) => k === 'project'),
     label: JSON.stringify(rule),
   };
 
@@ -90,7 +90,7 @@ function compileTicketRule(rule: TicketRule): CompiledTicketRule {
     }));
   }
 
-  if (rule.title) compiled.title = new RegExp(rule.title.matches, rule.title.flags ?? "");
+  if (rule.title) compiled.title = new RegExp(rule.title.matches, rule.title.flags ?? '');
   if (rule.reporter) compiled.reporter = buildMatchSet(rule.reporter);
   if (rule.assignee) compiled.assignee = buildMatchSet(rule.assignee);
 

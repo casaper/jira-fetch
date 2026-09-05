@@ -7,47 +7,47 @@
  */
 
 export const PERMISSIONS = [
-  "--allow-net",
-  "--allow-env",
-  "--allow-read",
-  "--allow-write",
+  '--allow-net',
+  '--allow-env',
+  '--allow-read',
+  '--allow-write',
 ];
 
 export const TARGETS = [
-  { triple: "x86_64-apple-darwin", name: "jira-fetch-macos-x86_64" },
-  { triple: "aarch64-apple-darwin", name: "jira-fetch-macos-aarch64" },
-  { triple: "x86_64-unknown-linux-gnu", name: "jira-fetch-linux-x86_64" },
-  { triple: "aarch64-unknown-linux-gnu", name: "jira-fetch-linux-aarch64" },
-  { triple: "x86_64-pc-windows-msvc", name: "jira-fetch-windows-x86_64.exe" },
-  { triple: "aarch64-pc-windows-msvc", name: "jira-fetch-windows-aarch64.exe" },
+  { triple: 'x86_64-apple-darwin', name: 'jira-fetch-macos-x86_64' },
+  { triple: 'aarch64-apple-darwin', name: 'jira-fetch-macos-aarch64' },
+  { triple: 'x86_64-unknown-linux-gnu', name: 'jira-fetch-linux-x86_64' },
+  { triple: 'aarch64-unknown-linux-gnu', name: 'jira-fetch-linux-aarch64' },
+  { triple: 'x86_64-pc-windows-msvc', name: 'jira-fetch-windows-x86_64.exe' },
+  { triple: 'aarch64-pc-windows-msvc', name: 'jira-fetch-windows-aarch64.exe' },
 ];
 
 async function compile(target: { triple: string; name: string } | null): Promise<boolean> {
-  const out = target ? `dist/${target.name}` : "dist/jira-fetch";
+  const out = target ? `dist/${target.name}` : 'dist/jira-fetch';
   const args = [
-    "compile",
+    'compile',
     ...PERMISSIONS,
-    ...(target ? ["--target", target.triple] : []),
-    "-o",
+    ...(target ? ['--target', target.triple] : []),
+    '-o',
     out,
-    "src/main.ts",
+    'src/main.ts',
   ];
-  console.log(`  ${target?.triple ?? "host"} -> ${out}`);
+  console.log(`  ${target?.triple ?? 'host'} -> ${out}`);
   const { success } = await new Deno.Command(Deno.execPath(), {
     args,
-    stdout: "inherit",
-    stderr: "inherit",
+    stdout: 'inherit',
+    stderr: 'inherit',
   }).output();
   return success;
 }
 
 if (import.meta.main) {
-  const hostOnly = Deno.args.includes("--host");
-  console.log(hostOnly ? "Building for host..." : `Building ${TARGETS.length} targets...`);
+  const hostOnly = Deno.args.includes('--host');
+  console.log(hostOnly ? 'Building for host...' : `Building ${TARGETS.length} targets...`);
 
   const failures: string[] = [];
   if (hostOnly) {
-    if (!await compile(null)) failures.push("host");
+    if (!await compile(null)) failures.push('host');
   } else {
     for (const target of TARGETS) {
       if (!await compile(target)) failures.push(target.triple);
@@ -55,8 +55,8 @@ if (import.meta.main) {
   }
 
   if (failures.length > 0) {
-    console.error(`\nFailed: ${failures.join(", ")}`);
+    console.error(`\nFailed: ${failures.join(', ')}`);
     Deno.exit(1);
   }
-  console.log("\nDone.");
+  console.log('\nDone.');
 }

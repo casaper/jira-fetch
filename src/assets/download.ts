@@ -6,9 +6,9 @@
  * on a name, the relative links would break silently.
  */
 
-import { join } from "@std/path";
-import type { AssetEntry, AssetManifest, JiraAttachment } from "../jira/types.ts";
-import type { JiraClient } from "../jira/client.ts";
+import { join } from '@std/path';
+import type { AssetEntry, AssetManifest, JiraAttachment } from '../jira/types.ts';
+import type { JiraClient } from '../jira/client.ts';
 
 /** Reserved device names on Windows; the binary ships there too. */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
@@ -20,19 +20,19 @@ const MAX_STEM = 80;
 /** Makes an attachment filename safe on macOS, Linux and Windows without losing the extension. */
 export function sanitizeFilename(raw: string): string {
   // Jira allows path separators in filenames; only the last segment is meaningful.
-  const base = raw.split(/[/\\]/).pop() ?? "";
+  const base = raw.split(/[/\\]/).pop() ?? '';
   // Whitespace becomes an underscore: the filename ends up in a Markdown link and in shell
   // commands, and `%20` in either is a needless annoyance.
-  let name = base.replace(ILLEGAL, "_").replace(/\s+/g, "_").replace(/_{2,}/g, "_").trim();
+  let name = base.replace(ILLEGAL, '_').replace(/\s+/g, '_').replace(/_{2,}/g, '_').trim();
 
   // A leading dot would hide the file, and trailing dots/spaces are illegal on Windows.
-  name = name.replace(/^\.+/, "").replace(/[. ]+$/, "");
+  name = name.replace(/^\.+/, '').replace(/[. ]+$/, '');
 
-  const dot = name.lastIndexOf(".");
+  const dot = name.lastIndexOf('.');
   let stem = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot).toLowerCase() : "";
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : '';
 
-  if (stem.length === 0) stem = "attachment";
+  if (stem.length === 0) stem = 'attachment';
   if (WINDOWS_RESERVED.test(stem)) stem = `_${stem}`;
   if (stem.length > MAX_STEM) stem = stem.slice(0, MAX_STEM);
 
@@ -60,11 +60,11 @@ export function buildManifest(
   for (const attachment of attachments ?? []) {
     if (!attachment?.id) continue;
 
-    let filename = sanitizeFilename(attachment.filename ?? "attachment");
+    let filename = sanitizeFilename(attachment.filename ?? 'attachment');
     if (taken.has(filename.toLowerCase())) {
-      const dot = filename.lastIndexOf(".");
+      const dot = filename.lastIndexOf('.');
       const stem = dot > 0 ? filename.slice(0, dot) : filename;
-      const ext = dot > 0 ? filename.slice(dot) : "";
+      const ext = dot > 0 ? filename.slice(dot) : '';
       filename = `${stem}-${attachment.id}${ext}`;
     }
     taken.add(filename.toLowerCase());
@@ -102,7 +102,7 @@ export async function downloadAssets(
 
   for (const entry of manifest.values()) {
     try {
-      const response = await client.raw(entry.contentUrl, { headers: { Accept: "*/*" } });
+      const response = await client.raw(entry.contentUrl, { headers: { Accept: '*/*' } });
       const bytes = new Uint8Array(await response.arrayBuffer());
       assertNotLoginPage(entry, response, bytes);
       await Deno.writeFile(join(targetDir, entry.filename), bytes);
@@ -126,11 +126,11 @@ function assertNotLoginPage(entry: AssetEntry, response: Response, bytes: Uint8A
     throw new Error(`${entry.filename}: server returned an empty body`);
   }
 
-  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
-  const expectedHtml = (entry.mimeType ?? "").toLowerCase().includes("html");
-  if (contentType.includes("text/html") && !expectedHtml) {
+  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+  const expectedHtml = (entry.mimeType ?? '').toLowerCase().includes('html');
+  if (contentType.includes('text/html') && !expectedHtml) {
     throw new Error(
-      `${entry.filename}: expected ${entry.mimeType ?? "binary"} but received HTML — ` +
+      `${entry.filename}: expected ${entry.mimeType ?? 'binary'} but received HTML — ` +
         `the request was probably not authenticated`,
     );
   }

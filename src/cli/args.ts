@@ -1,9 +1,9 @@
-import { parseArgs } from "@std/cli/parse-args";
+import { parseArgs } from '@std/cli/parse-args';
 
-export const VERSION = "0.1.0";
+export const VERSION = '0.1.0';
 
 export class UsageError extends Error {
-  override readonly name = "UsageError";
+  override readonly name = 'UsageError';
 }
 
 export interface Args {
@@ -58,17 +58,17 @@ EXIT CODES
 
 export function parseCliArgs(argv: string[]): Args {
   const parsed = parseArgs(argv, {
-    string: ["out", "config", "base-url", "email", "token", "jql"],
-    boolean: ["dry-run", "verbose", "help", "version"],
+    string: ['out', 'config', 'base-url', 'email', 'token', 'jql'],
+    boolean: ['dry-run', 'verbose', 'help', 'version'],
     alias: {
-      o: "out",
-      c: "config",
-      n: "dry-run",
-      v: "verbose",
-      h: "help",
+      o: 'out',
+      c: 'config',
+      n: 'dry-run',
+      v: 'verbose',
+      h: 'help',
     },
     unknown: (arg) => {
-      if (arg.startsWith("-")) throw new UsageError(`unknown option: ${arg}`);
+      if (arg.startsWith('-')) throw new UsageError(`unknown option: ${arg}`);
       return true;
     },
   });
@@ -78,10 +78,10 @@ export function parseCliArgs(argv: string[]): Args {
     jql: parsed.jql || undefined,
     out: parsed.out || undefined,
     config: parsed.config || undefined,
-    baseUrl: parsed["base-url"] || undefined,
+    baseUrl: parsed['base-url'] || undefined,
     email: parsed.email || undefined,
     token: parsed.token || undefined,
-    dryRun: parsed["dry-run"],
+    dryRun: parsed['dry-run'],
     verbose: parsed.verbose,
     help: parsed.help,
     version: parsed.version,
@@ -104,7 +104,7 @@ export function parseCliArgs(argv: string[]): Args {
   }
 
   if (args.keys.length === 0 && !args.jql) {
-    throw new UsageError("nothing to fetch: pass an issue key or --jql");
+    throw new UsageError('nothing to fetch: pass an issue key or --jql');
   }
 
   return args;
