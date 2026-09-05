@@ -5,6 +5,7 @@
   "exports": "./src/main.ts",
   "tasks": {
     "dev": "deno run --allow-net --allow-env --allow-read --allow-write src/main.ts",
+    "mcp": "deno run --allow-net --allow-env --allow-read --allow-write src/main.ts mcp",
     "check": "deno check src/ scripts/ && deno lint && deno fmt --check && deno run -A scripts/gen_schema.ts --check && deno run -A scripts/gen_types.ts --check",
     "lint": "deno lint",
     "fmt": "deno fmt",
@@ -21,7 +22,9 @@
     "build:all": "deno run -A scripts/build_all.ts"
   },
   "fmt": {
-    "exclude": ["spec/"],
+    "exclude": [
+      "spec/"
+    ],
     "lineWidth": 100,
     "indentWidth": 2,
     "useTabs": false,
@@ -64,6 +67,7 @@
     }
   },
   "imports": {
+    "@modelcontextprotocol/server": "npm:@modelcontextprotocol/server@^2.0.0",
     "@std/assert": "jsr:@std/assert@^1.0.19",
     "@std/cli": "jsr:@std/cli@^1.0.32",
     "@std/dotenv": "jsr:@std/dotenv@^0.225.8",

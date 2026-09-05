@@ -10,6 +10,9 @@ export class UsageError extends Error {
 /** The flags that also exist as config keys are derived from the schema; the rest are CLI-only
  * and have no config-file counterpart. */
 export type Args = Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'out'> & {
+  /** `fetch` writes documents for the keys below; `mcp` serves the same pipeline over stdio and
+   * takes its keys from tool calls instead. */
+  mode: 'fetch' | 'mcp';
   keys: string[];
   jql?: string;
   config?: string;
@@ -19,7 +22,13 @@ export type Args = Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'out'> & {
   version: boolean;
 };
 
-const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+/** Shared with the MCP server, which validates the keys a client sends against the same shape.
+ * Anything looser reaches `GET /rest/api/3/issue/{key}` as path segments. */
+export const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+
+/** The one subcommand. Matched as an exact literal rather than "not an issue key", so a typo is a
+ * usage error naming the bad key instead of a server nobody asked for. */
+const MCP_COMMAND = 'mcp';
 
 export const HELP = `jira-fetch ${VERSION}
 Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
@@ -27,6 +36,7 @@ Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
 USAGE
   jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
   jira-fetch --jql "<JQL>"           fetch every issue matching a query
+  jira-fetch mcp                     serve the same pipeline over MCP on stdio
 
 OPTIONS
   -o, --out <dir>      output directory (default: current directory)
@@ -57,6 +67,18 @@ CONFIGURATION
     people      which of reporter/assignee/commenter appear, and how much each says
     allowJql    when false, --jql is refused
 
+MCP SERVER
+  jira-fetch mcp speaks the Model Context Protocol on stdin/stdout, for Claude Code and other
+  MCP clients. It offers two tools and no others:
+
+    fetch_issues    write documents for the given issue keys
+    search_issues   the same, for every issue a JQL query matches
+                    (not offered at all when the config sets allowJql: false)
+
+  Both write into the output directory fixed at startup and return links to what they wrote.
+  There is no tool that changes anything in Jira, and none takes a path. The config's filters
+  decide which issues may be fetched; a client cannot override them. See the README.
+
 OUTPUT
   <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)
   <out>/.<ISSUE-KEY>/          its attachments
@@ -83,7 +105,11 @@ export function parseCliArgs(argv: string[]): Args {
     },
   });
 
+  const positional = parsed._.map((raw) => String(raw).trim());
+  const mcp = positional[0] === MCP_COMMAND;
+
   const args: Args = {
+    mode: mcp ? 'mcp' : 'fetch',
     keys: [],
     jql: parsed.jql || undefined,
     out: parsed.out || undefined,
@@ -99,9 +125,20 @@ export function parseCliArgs(argv: string[]): Args {
 
   if (args.help || args.version) return args;
 
+  if (mcp) {
+    // The tools are the interface in this mode, so anything that names work up front is a
+    // mistake worth catching at startup rather than an argument silently ignored for the life
+    // of a long-running server.
+    if (positional.length > 1) {
+      throw new UsageError(`"${positional[1]}": jira-fetch mcp takes no issue keys`);
+    }
+    if (args.jql) throw new UsageError('--jql has no meaning for mcp; use the search_issues tool');
+    if (args.dryRun) throw new UsageError('--dry-run has no meaning for mcp');
+    return args;
+  }
+
   const seen = new Set<string>();
-  for (const raw of parsed._) {
-    const key = String(raw).trim();
+  for (const key of positional) {
     if (!ISSUE_KEY.test(key)) {
       throw new UsageError(`"${key}" is not an issue key (expected something like DN-1243)`);
     }

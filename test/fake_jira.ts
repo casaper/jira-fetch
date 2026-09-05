@@ -62,7 +62,19 @@ export function startFakeJira(): Promise<Fake> {
       return new Response(PNG, { headers: { 'content-type': 'image/png' } });
     }
     if (url.pathname === '/rest/api/3/search/jql') {
-      return Response.json({ issues: [{ key: 'DN-1243' }, { key: 'SUP-9' }], isLast: true });
+      // `wide` is how a test asks for more hits than a limit allows; the default pair is what the
+      // CLI tests expect, so the two cases stay independent. The query is in the POST body — the
+      // search endpoint is token-paged and takes JSON, not query parameters.
+      return request.json().then((body: { jql?: string }) =>
+        Response.json(
+          (body.jql ?? '').includes('wide')
+            ? {
+              issues: [{ key: 'DN-1243' }, { key: 'SUP-9' }, { key: 'DN-1250' }],
+              isLast: true,
+            }
+            : { issues: [{ key: 'DN-1243' }, { key: 'SUP-9' }], isLast: true },
+        )
+      );
     }
     if (url.pathname === '/rest/api/3/field') {
       return Response.json([{ id: 'customfield_10101', name: 'Team', custom: true }]);

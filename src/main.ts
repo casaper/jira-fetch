@@ -12,6 +12,7 @@ import {
 } from './config/config.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
+import { serveMcp } from './mcp/server.ts';
 
 export const EXIT = {
   ok: 0,
@@ -148,15 +149,34 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     return EXIT.usageError;
   }
 
+  const clientOptions = {
+    baseUrl: config.baseUrl,
+    email: config.email,
+    token: config.token,
+  };
+
+  if (args.mode === 'mcp') {
+    // The protocol owns stdout from here: one stray line corrupts the JSON-RPC stream and the
+    // session dies far from its cause. `src/fetch/session.ts` is what actually prevents that — it
+    // writes nothing there — and this throws rather than redirecting to stderr, because a redirect
+    // would launder a leak into something `test/mcp_test.ts`'s purity check cannot see.
+    console.log = () => {
+      throw new Error('stdout belongs to the MCP protocol; write to stderr instead');
+    };
+    log(`config: ${config.configPath ?? '(none found)'}`);
+    log(`site:   ${config.baseUrl}`);
+    log(`output: ${config.outDir}`);
+
+    const client = new JiraClient(clientOptions);
+    await serveMcp(await createSession({ config, client, log }), config);
+    return EXIT.ok;
+  }
+
   log(`config: ${config.configPath ?? '(none found)'}`);
   log(`site:   ${config.baseUrl}`);
   log(`output: ${config.outDir}${args.dryRun ? ' (dry run)' : ''}`);
 
-  const client = new JiraClient({
-    baseUrl: config.baseUrl,
-    email: config.email,
-    token: config.token,
-  });
+  const client = new JiraClient(clientOptions);
 
   const tally: Tally = { written: 0, excluded: 0, errors: 0 };
 
