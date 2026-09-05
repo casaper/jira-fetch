@@ -1,0 +1,21 @@
+The files in this directory are vendored, unmodified in substance, from Atlassian.
+They are used to derive TypeScript types (see scripts/gen_types.ts); they are not
+redistributed as part of the compiled binaries.
+
+jira-platform.subset.json
+  Source:  https://developer.atlassian.com/cloud/jira/platform/swagger-v3.json
+  Version: 1001.0.0-SNAPSHOT-82b018affa468e58f284fbe4df33536469d757df
+  The Jira Cloud platform REST API specification
+  Copyright Atlassian Pty Ltd
+  Licensed under the Apache License, Version 2.0
+  Pruned to the schemas this project reads; see scripts/vendor_spec.ts.
+
+adf-schema.json
+  Source:  https://go.atlassian.com/adf-json-schema
+  Resolved: https://unpkg.com/@atlaskit/adf-schema@57.3.4/dist/json-schema/v1/full.json
+  @atlaskit/adf-schema — the Atlassian Document Format JSON Schema
+  Copyright Atlassian Pty Ltd
+  Licensed under the Apache License, Version 2.0
+
+A copy of the Apache License, Version 2.0 is available at
+http://www.apache.org/licenses/LICENSE-2.0
