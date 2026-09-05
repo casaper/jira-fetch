@@ -9,15 +9,34 @@ import type { PeopleConfig } from '../config/schema.ts';
 import type { AssetManifest, IssueRef, JiraIssue } from '../jira/types.ts';
 import { personRecord } from './people.ts';
 
+/** A pointer to another issue: enough to identify it and decide whether it matters, and no more.
+ *
+ * Deliberately no `title`. A related ticket's summary is a copy of text that lives in that
+ * ticket — it goes stale the moment someone renames it, and the key is what you fetch to get the
+ * current one. Type and status stay because they are what a reader triages on. */
 function ref(r: IssueRef | null | undefined) {
   if (!r?.key) return null;
   return {
     key: r.key,
-    title: r.fields?.summary ?? null,
     type: r.fields?.issuetype?.name ?? null,
     status: r.fields?.status?.name ?? null,
   };
 }
+
+/** Jira's own timestamp spelling: local time with a numeric offset, `2026-09-05T22:55:38.299+0200`.
+ *
+ * `toISOString()` would be correct but a *different* format — UTC with a `Z` — sitting next to
+ * `created_at` and `updated_at`, which come from Jira verbatim. One block, one shape. */
+const localTimestamp = (d: Date): string => {
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  // getTimezoneOffset counts minutes *behind* UTC, so its sign is the opposite of the one written.
+  const offset = -d.getTimezoneOffset();
+  const abs = Math.abs(offset);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `.${pad(d.getMilliseconds(), 3)}` +
+    `${offset < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`;
+};
 
 function names(list: Array<{ name?: string }> | undefined): string[] {
   return (list ?? []).map((v) => v.name).filter((n): n is string => typeof n === 'string');
@@ -36,7 +55,7 @@ const isEmpty = (value: unknown): boolean =>
  * Deliberately *not* "falsy". `comment_count: 0` and a `false` are facts, and an empty string is
  * left alone rather than guessed at — this removes absence, not content.
  *
- * Children are pruned before their parents, so `{ parent: { title: null } }` collapses all the
+ * Children are pruned before their parents, so `{ parent: { status: null } }` collapses all the
  * way rather than leaving an empty object behind. Object *properties* are dropped; array
  * *elements* are pruned in place but never removed, since dropping one would shift every index
  * after it. The consequence is that nested records go ragged — `parent` may be just `{ key }`,
@@ -81,7 +100,7 @@ export function buildFrontmatter(input: FrontmatterInput): Record<string, unknow
     assignee: person(f.assignee, 'assignee'),
     created_at: f.created ?? null,
     updated_at: f.updated ?? null,
-    fetched_at: (input.fetchedAt ?? new Date()).toISOString(),
+    fetched_at: localTimestamp(input.fetchedAt ?? new Date()),
     labels: f.labels ?? [],
     components: names(f.components),
     fix_versions: names(f.fixVersions),

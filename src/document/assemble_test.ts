@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertMatch, assertStringIncludes } from '@std/assert';
 import { parse as parseYaml } from '@std/yaml';
 import { assembleDocument } from './assemble.ts';
 import { buildManifest } from '../assets/download.ts';
@@ -76,7 +76,12 @@ Deno.test("frontmatter carries the ticket's machine-readable metadata", () => {
   assertEquals(data.priority, 'Medium');
   assertEquals(data.created_at, '2026-08-01T09:12:00.000+0200');
   assertEquals(data.updated_at, '2026-08-14T16:40:11.000+0200');
-  assertEquals(data.fetched_at, FETCHED_AT.toISOString());
+  // Spelled like Jira's own timestamps — local time with a numeric offset, not UTC with a `Z` —
+  // so every date in the block reads the same way. Asserted by shape and instant rather than by
+  // a literal, since the offset is whatever the machine running the tests is in.
+  const fetchedAt = data.fetched_at as string;
+  assertMatch(fetchedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}$/);
+  assertEquals(new Date(fetchedAt).getTime(), FETCHED_AT.getTime());
   assertEquals(data.labels, ['backend', 'wontfix']);
   assertEquals(data.components, ['api', 'exporter']);
   assertEquals(data.fix_versions, ['2026.9']);
@@ -180,12 +185,15 @@ Deno.test('parent, siblings and subtasks are recorded', () => {
   const data = frontmatterOf(assemble().markdown);
   assertEquals((data.parent as Record<string, unknown>).key, 'DN-1200');
   assertEquals(data.siblings, ['DN-1245', 'DN-1246']);
-  assertEquals(data.subtasks, [{
-    key: 'DN-1244',
-    title: 'Write the exporter',
-    type: 'Sub-task',
-    status: 'To Do',
-  }]);
+  assertEquals(data.subtasks, [{ key: 'DN-1244', type: 'Sub-task', status: 'To Do' }]);
+});
+
+Deno.test('a reference to another issue carries no copy of its title', () => {
+  const data = frontmatterOf(assemble().markdown);
+  assertEquals(data.parent, { key: 'DN-1200', type: 'Epic', status: 'In Progress' });
+  // The fixture's parent and subtask both have a summary; neither is written.
+  assertFalse(JSON.stringify(data.parent).includes('Export epic'));
+  assertFalse(JSON.stringify(data.subtasks).includes('Write the exporter'));
 });
 
 Deno.test('assets are listed with the relative path used in the body', () => {
