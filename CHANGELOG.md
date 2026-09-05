@@ -6,6 +6,21 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.1.0 — 2026-09-05
+
+### Refactoring
+
+- **jira:** derive the wire types from Atlassian's schemas ([d58ca3a](https://github.com/casaper/jira-fetch/commit/d58ca3ac2d6fa7ad38c15499e0734e934692cb88))
+
+### Documentation
+
+- record how the Jira types are derived ([6058824](https://github.com/casaper/jira-fetch/commit/6058824067c7a942f78a05dbae7d5246b3b8b014))
+
+### Build & Tooling
+
+- **scripts:** derive Jira and ADF types from vendored schemas ([03ad381](https://github.com/casaper/jira-fetch/commit/03ad381074877d3e7893425e3a75b0b47e2e113e))
+- **deps:** vendor the Jira and ADF schemas ([28cbb7d](https://github.com/casaper/jira-fetch/commit/28cbb7d76d7759a078f53ad2efb8656340757557))
+
 ## 0.0.1 — 2026-09-05
 
 ### Features
