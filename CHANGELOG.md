@@ -6,6 +6,24 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.2.0 — 2026-09-05
+
+### Features
+
+- **config:** read .env files and widen config discovery ([185bb65](https://github.com/casaper/jira-fetch/commit/185bb65bbf9c4db7568e45c1e3b36e2e7c79dfc5))
+
+### Bug Fixes
+
+- **schema:** point the schema $id at the published URL ([64705b7](https://github.com/casaper/jira-fetch/commit/64705b74f1d6ef1dbe61b9f5bc30b32b448bd6cc))
+
+### Documentation
+
+- ship a YAML example and explain committing a config ([2ef650d](https://github.com/casaper/jira-fetch/commit/2ef650db2474575b3177d321422d14780dcbbba6))
+
+### Chores
+
+- ignore secret .env.local file ([feef0be](https://github.com/casaper/jira-fetch/commit/feef0be5514408a33aac5462a276bca66f906567))
+
 ## 0.1.0 — 2026-09-05
 
 ### Refactoring
