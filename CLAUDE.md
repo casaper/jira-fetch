@@ -211,6 +211,47 @@ cost an afternoon and a false report that three of the six platform packages had
 when all six had. `npm view <pkg> version` resolves correctly while the document is still stale, and
 the tarball URL under `dist.tarball` can be fetched to prove the bytes are really there.
 
+**Checking a published release on Linux, which is the only way to run those two binaries.** The
+suite is sealed and cross-compiles are unverifiable from the host, so what is left is to install
+the real package from the registry and run it. Swap `linux/arm64` for `linux/amd64` to exercise the
+other one — Docker emulates it, slowly but faithfully:
+
+```sh
+docker run --rm --platform linux/arm64 node:24 sh -c '
+  npm i -g jira-fetch >/dev/null 2>&1
+  echo "platform packages: $(ls "$(npm root -g)"/jira-fetch/node_modules/@casaper)"
+  echo "version: $(jira-fetch --version)"
+  mkdir -p /work && cd /work && git init -q .
+  cfg=$(jira-fetch config-file 2>/dev/null)
+  mkdir -p "$(dirname "$cfg")"
+  printf "project: /work\nbaseUrl: https://unreachable.invalid\nemail: a@b.invalid\ntoken: dummy\nfilters:\n  exclude:\n    - project: [SUP]\n" > "$cfg"
+  jira-fetch SUP-1 --out /tmp/o >/dev/null 2>&1; echo "filtered exit=$? (want 3)"
+  jira-fetch --nonsense  >/dev/null 2>&1; echo "usage exit=$? (want 2)"
+  : | jira-fetch mcp --out /tmp/o >/tmp/s 2>/dev/null; echo "mcp exit=$? stdout=$(wc -c </tmp/s)"
+'
+```
+
+Four things are being checked, and each would be invisible from the host:
+
+- **Exactly one** platform package is listed. That is the `os`/`cpu` gating working; six would mean
+  a user downloads 200 MB to use 35 MB of it.
+- `--version` printing at all proves the executable bit survived npm's tar and that the Node shim
+  found its sibling package.
+- **`filtered exit=3` with `baseUrl` set to `.invalid`** is the sharp one: exit 3 there proves the
+  stage-1 project-prefix denial happened before any request, since a request could not have
+  succeeded. No credentials go into the container.
+- **`mcp exit=0 stdout=0`** proves the server still stops when stdin ends with a Node process in
+  between, and that the shim writes nothing to the JSON-RPC stream.
+
+Deleting `"$(npm root -g)"/jira-fetch/node_modules/@casaper` before running exercises the shim's
+other branch: it must name the platform and exit 1, not fail with a resolver stack trace. Note that
+`--omit=optional` does **not** reproduce that — npm installs the optional platform package anyway on
+a global install, which the shim's own error message currently claims otherwise.
+
+**Windows is still unrun.** The artefacts are checkable from anywhere — `file` reports the PE
+architecture and the tarball bytes can be compared against `SHA256SUMS` — but npm's generated
+`.cmd` wrapper and `spawnSync` of the `.exe` have never been executed.
+
 **`publishNpm` runs last in `scripts/publish.ts`, deliberately.** Everything before it can be
 re-run; a published npm version cannot be unpublished after 72 hours and can never be republished,
 so a bad shim in 0.5.1 is permanent and the fix is 0.5.2. It skips what the registry already has,
