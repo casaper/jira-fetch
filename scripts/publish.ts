@@ -225,7 +225,18 @@ export const assertCanPublish = async (): Promise<void> => {
   if (!await succeeds('gh', '--version')) {
     fail('the GitHub CLI is not installed: https://cli.github.com');
   }
-  if (!await succeeds('gh', 'auth', 'status')) fail('not logged in to GitHub: run `gh auth login`');
+  // `gh api user` rather than `gh auth status`: it makes a request with whichever credential gh
+  // will actually use, instead of asking gh's opinion about the accounts it knows. That matters
+  // here because there are usually two — a keyring login and a GH_TOKEN that direnv exports for
+  // this directory — and gh silently prefers the token. `gh auth status` does validate the active
+  // one (an invalid GH_TOKEN fails it too, checked), so this is a tightening rather than a fix:
+  // one request, one answer, no reasoning about which account the exit code described.
+  if (!await succeeds('gh', 'api', 'user')) {
+    fail(
+      'GitHub authentication is not working: run `gh auth login`.\n' +
+        '  If GH_TOKEN is set, gh prefers it over the keyring — check that one first.',
+    );
+  }
 
   // The repository's .npmrc authenticates with ${NPM_TOKEN}, which direnv loads from .env.local.
   // Unset, npm sends the literal string and fails with an unauthorised error that says nothing

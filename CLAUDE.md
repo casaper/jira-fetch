@@ -204,6 +204,13 @@ platform matrix is still declared once. The manifests and the shim are **generat
 hand-edited** — the same rule as `CHANGELOG.md` and `schema/jira-fetch.schema.json`.
 `deno task npm:pack` stages them into `dist/npm` for inspection without publishing.
 
+**Check what is published with `npm view`, never by fetching the packument.** `curl
+registry.npmjs.org/<pkg>` is served from a CDN that lags behind a publish by minutes, and a stale
+copy reads as a package with **no versions at all** — indistinguishable from a failed publish. That
+cost an afternoon and a false report that three of the six platform packages had not published,
+when all six had. `npm view <pkg> version` resolves correctly while the document is still stale, and
+the tarball URL under `dist.tarball` can be fetched to prove the bytes are really there.
+
 **`publishNpm` runs last in `scripts/publish.ts`, deliberately.** Everything before it can be
 re-run; a published npm version cannot be unpublished after 72 hours and can never be republished,
 so a bad shim in 0.5.1 is permanent and the fix is 0.5.2. It skips what the registry already has,
