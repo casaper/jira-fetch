@@ -6,6 +6,16 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.5.2 — 2026-09-06
+
+### Features
+
+- **release:** take a fresh npm one-time code per package ([fa00d70](https://github.com/casaper/jira-fetch/commit/fa00d70babbb1efe3647b94b6ce8730c61d87bc1))
+
+### Bug Fixes
+
+- **release:** prompt from a child of run, and resume a half-done release ([b7f7d71](https://github.com/casaper/jira-fetch/commit/b7f7d715787b00b78de2bf7c7f819409bf8142a3))
+
 ## 0.5.1 — 2026-09-06
 
 ### Features
