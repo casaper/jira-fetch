@@ -24,8 +24,10 @@ export const NPM_SCOPE = 'casaper';
 export const MAIN_PACKAGE = 'jira-fetch';
 
 const REPO_URL = 'https://github.com/casaper/jira-fetch';
+/** npm's search index reads this and `keywords`, so both name the MCP/agent use rather than
+ * describing a Jira exporter — that is what people are actually looking for. */
 const DESCRIPTION =
-  'Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments and all.';
+  'Fetch Jira Cloud issues into Markdown files with frontmatter and attachments — a CLI and MCP server for AI agents.';
 
 const repository = { type: 'git', url: `git+${REPO_URL}.git` };
 
@@ -93,7 +95,21 @@ export const mainManifest = (version: string): MainManifest => ({
   homepage: REPO_URL,
   repository,
   bugs: { url: `${REPO_URL}/issues` },
-  keywords: ['jira', 'atlassian', 'markdown', 'cli', 'mcp', 'mcp-server'],
+  keywords: [
+    'jira',
+    'jira-cloud',
+    'atlassian',
+    'markdown',
+    'cli',
+    'mcp',
+    'mcp-server',
+    'model-context-protocol',
+    'claude-code',
+    'ai-agent',
+    'llm',
+    'issue-tracker',
+    'deno',
+  ],
   bin: { [MAIN_PACKAGE]: 'bin/jira-fetch.mjs' },
   files: ['bin/jira-fetch.mjs'],
   engines: { node: '>=18' },
@@ -128,8 +144,9 @@ try {
 } catch {
   process.stderr.write(
     'jira-fetch: no prebuilt binary for ' + platform + '.\n' +
-      'One binary per platform ships as an optional dependency, so this usually means the\n' +
-      'install ran with --no-optional or --omit=optional, or this platform is not built.\n' +
+      'One binary per platform ships as an optional dependency, and the matching one is not\n' +
+      'installed. Either this platform is not among the six that are built, or the package\n' +
+      'tree is incomplete -- reinstalling jira-fetch is the usual fix.\n' +
       'Binaries for every supported platform: https://github.com/casaper/jira-fetch/releases\n',
   );
   process.exit(1);
