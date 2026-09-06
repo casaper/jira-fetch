@@ -20,7 +20,8 @@
     "release": "deno run -A scripts/release.ts",
     "publish": "deno run -A scripts/publish.ts",
     "build": "deno run -A scripts/build_all.ts --host",
-    "build:all": "deno run -A scripts/build_all.ts"
+    "build:all": "deno run -A scripts/build_all.ts",
+    "npm:pack": "deno run -A scripts/npm_package.ts"
   },
   "fmt": {
     "exclude": [

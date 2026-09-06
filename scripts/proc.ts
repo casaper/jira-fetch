@@ -30,3 +30,12 @@ export const succeeds = async (cmd: string, ...args: string[]): Promise<boolean>
   }).output();
   return success;
 };
+
+/** What a command printed, or `null` when it failed. The sibling of `succeeds` for the probes
+ * whose answer is the output rather than the exit status — `npm view pkg@version version` exits 0
+ * with *empty* stdout for a package that exists without that version, so "did it succeed?" is the
+ * wrong question and would read a missing version as a published one. */
+export const output = async (cmd: string, ...args: string[]): Promise<string | null> => {
+  const { stdout, success } = await new Deno.Command(cmd, { args, stderr: 'null' }).output();
+  return success ? decode(stdout).trim() : null;
+};
