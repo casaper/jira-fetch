@@ -22,7 +22,8 @@
  */
 
 import { join } from '@std/path';
-import { loadDotenv, resolveConfig } from '../src/config/config.ts';
+import { loadProjectConfig, resolveConfig } from '../src/config/config.ts';
+import { configPathFor, findProjectRoot, userConfigDir } from '../src/config/location.ts';
 import { ConfigError } from '../src/config/errors.ts';
 import { JiraClient } from '../src/jira/client.ts';
 import { compileFilters } from '../src/filter/rules.ts';
@@ -293,25 +294,24 @@ const configFor = (base: Config, filters: FiltersConfig, outDir: string): Config
 
 const run = async (): Promise<number> => {
   const cwd = REPO;
-  const env = {
-    ...await loadDotenv(cwd),
-    ...Object.fromEntries(
-      ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN'].map((k) => [k, Deno.env.get(k)])
-        .filter(([, v]) => v !== undefined),
-    ),
-  };
 
   let base: Config;
   try {
-    // No config file: the scenarios below are the filters under test, and a discovered
-    // `.jira-fetch.yml` would silently change every expectation in this file.
-    base = resolveConfig({ flags: {}, env, cwd });
+    // Credentials come from this repository's own config file, because after the move to a
+    // derived path there is nowhere else they can come from. Its `filters` are read and then
+    // thrown away: `configFor` below replaces them per scenario, since the filters are what is
+    // under test and the file's own would silently change every expectation here.
+    const projectRoot = await findProjectRoot(cwd);
+    const filePath = configPathFor(projectRoot, userConfigDir());
+    base = resolveConfig({
+      flags: {},
+      file: await loadProjectConfig(filePath, projectRoot),
+      filePath,
+      cwd,
+    });
   } catch (cause) {
     if (cause instanceof ConfigError) {
-      console.error(`skipped: no Jira credentials available (${cause.message})`);
-      console.error(
-        '  set JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN, or put them in .env.local',
-      );
+      console.error(`skipped: no usable configuration for this project\n${cause.message}`);
       return 0;
     }
     throw cause;

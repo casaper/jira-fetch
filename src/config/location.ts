@@ -68,12 +68,17 @@ export const userConfigDir = (
  *
  * It also ignores `GIT_DIR` and `GIT_WORK_TREE`. That is a feature: they are environment overrides
  * of exactly the thing this module exists to make underivable.
+ *
+ * The result is **canonicalised**, because the filename is derived from it: on macOS `/var` is a
+ * symlink to `/private/var`, and `Deno.cwd()` reports the resolved form while an argument might
+ * carry either. Without this the same repository would get two different config files depending on
+ * how it was reached.
  */
 export const findProjectRoot = async (startDir: string): Promise<string> => {
   for (const dir of ancestors(startDir)) {
     try {
       await Deno.lstat(join(dir, '.git'));
-      return dir;
+      return await Deno.realPath(dir);
     } catch (cause) {
       if (cause instanceof Deno.errors.NotFound) continue;
       throw new ConfigError(`cannot read ${join(dir, '.git')}: ${(cause as Error).message}`);

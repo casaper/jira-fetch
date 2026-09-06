@@ -9,7 +9,9 @@
  */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { join } from '@std/path';
+import { dirname, join } from '@std/path';
+import { stringify as stringifyYaml } from '@std/yaml';
+import { configPathFor } from '../src/config/location.ts';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import type { JSONRPCMessage } from '@modelcontextprotocol/server';
 import { createMcpServer } from '../src/mcp/server.ts';
@@ -58,7 +60,7 @@ async function withMcp(
     outDir,
     filters: compileFilters(options.filters),
     people: People.parse({}),
-    warnings: [],
+    configPath: '/config/jira-fetch/test.yml',
   };
 
   const session = await createSession({
@@ -252,10 +254,22 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
   // invisible exactly where it matters most: stdout is the protocol.
   const fake = await startFakeJira();
   const outDir = await Deno.makeTempDir();
-  const configPath = join(outDir, 'config.json');
+  // The subprocess resolves its own config the way a real run does: walk up for `.git`, then
+  // derive a filename under $HOME. Pinning HOME is what keeps it off this repository's real one.
+  const home = await Deno.makeTempDir();
+  await Deno.mkdir(join(outDir, '.git'));
+  // realPath because `findProjectRoot` canonicalises, and on macOS the temp dir is a symlink.
+  const projectRoot = await Deno.realPath(outDir);
+  const configPath = configPathFor(projectRoot, join(home, '.config', 'jira-fetch'));
+  await Deno.mkdir(dirname(configPath), { recursive: true });
   await Deno.writeTextFile(
     configPath,
-    JSON.stringify({ baseUrl: fake.origin, email: 'kim@example.com' }),
+    stringifyYaml({
+      project: projectRoot,
+      baseUrl: fake.origin,
+      email: 'kim@example.com',
+      token: 't',
+    }),
   );
 
   const frames = [
@@ -294,20 +308,14 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
       '--allow-write',
       new URL('../src/main.ts', import.meta.url).pathname,
       'mcp',
-      '--config',
-      configPath,
       '--out',
       outDir,
       '--verbose',
     ],
-    // `--out` and `--config` pin what this run uses, and an explicit base URL keeps the repo's
-    // own .env.local from redirecting a subprocess at a real Jira.
-    env: {
-      JIRA_API_TOKEN: 't',
-      JIRA_BASE_URL: fake.origin,
-      JIRA_EMAIL: 'kim@example.com',
-      HOME: outDir,
-    },
+    // A pinned HOME and a cwd inside the fake project are the whole seal: there is no --config to
+    // pass and no JIRA_* variable to set, so without these the subprocess would resolve this
+    // repository's own configuration, real token included.
+    env: { HOME: home },
     clearEnv: true,
     cwd: outDir,
     stdin: 'piped',

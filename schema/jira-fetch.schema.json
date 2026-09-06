@@ -8,6 +8,11 @@
       "description": "Path or URL of this JSON Schema, for editor support",
       "type": "string"
     },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute path of the git repository this configuration governs. The filename is derived from this path, and the derivation is not injective — /a/b_c and /a_b/c produce the same name — so the tool compares this key against the repository it is actually running in and refuses a mismatch, rather than silently applying another project's filters."
+    },
     "baseUrl": {
       "description": "Jira site, e.g. https://your-site.atlassian.net",
       "type": "string",
@@ -20,7 +25,7 @@
       "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
     },
     "token": {
-      "description": "Atlassian API token. Prefer the JIRA_API_TOKEN environment variable.",
+      "description": "Atlassian API token. Kept here rather than in the environment: an exported token is one an agent's own shell can send to Jira without going through this tool at all.",
       "type": "string",
       "minLength": 1
     },
@@ -386,6 +391,9 @@
       "description": "Which people the document names, and how much it says about each"
     }
   },
+  "required": [
+    "project"
+  ],
   "additionalProperties": false,
   "description": "Configuration for jira-fetch"
 }

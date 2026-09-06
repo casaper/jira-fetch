@@ -2,14 +2,8 @@
  * document per issue that survives the filters. */
 
 import { type Args, HELP, parseCliArgs, UsageError, VERSION } from './cli/args.ts';
-import {
-  type Config,
-  ConfigError,
-  discoverConfigFile,
-  loadConfigFile,
-  loadDotenv,
-  resolveConfig,
-} from './config/config.ts';
+import { type Config, ConfigError, loadProjectConfig, resolveConfig } from './config/config.ts';
+import { configPathFor, findProjectRoot, userConfigDir } from './config/location.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 import { serveMcp } from './mcp/server.ts';
@@ -62,33 +56,23 @@ function report(outcome: Outcome, tally: Tally): void {
   }
 }
 
-/** The environment variables this tool reads. Listed once so `.env` values and the real
- * environment are merged over exactly the same key set. */
-const ENV_KEYS = ['JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_FETCH_OUT'] as const;
-
-/** Only the keys that are actually set: spreading an `undefined` over a `.env` value would erase
- * it, which would silently invert the documented precedence. */
-const readProcessEnv = (): Record<string, string> => {
-  const out: Record<string, string> = {};
-  for (const key of ENV_KEYS) {
-    const value = Deno.env.get(key);
-    if (value !== undefined) out[key] = value;
-  }
-  return out;
-};
-
 /**
  * Everything ambient a run depends on, injectable so the suite can be hermetic.
  *
- * This matters more than it looks: `.env` files are a credential source now, so a test that let
- * the process environment through would pick up whatever `.env` happens to sit above the checkout.
+ * This matters more than it looks. The config file for a project is found by walking up for
+ * `.git` and then deriving a filename in the user's config directory — so a test that let either
+ * of those be computed would resolve the **real** configuration for this very repository, token
+ * included. Nothing asserts the token, so the leak would not turn the suite red; it would just
+ * quietly stop being hermetic.
+ *
+ * Any new entry point that calls `run` from a test must pass both `projectRoot` and `configDir`.
  */
 export type RunDeps = {
-  /** When given, used **verbatim**: no `.env` file is read and `Deno.env` is not consulted. */
-  env?: Record<string, string | undefined>;
   cwd?: string;
-  /** Only used to locate the user's own config, and to tell it from a project's. */
-  home?: string;
+  /** When given, used **verbatim**: no walk for `.git` happens. */
+  projectRoot?: string;
+  /** When given, used **verbatim**: `$HOME` and `%APPDATA%` are never consulted. */
+  configDir?: string;
 };
 
 export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> => {
@@ -115,24 +99,17 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
 
   const log = makeLogger(args.verbose);
   const cwd = deps.cwd ?? Deno.cwd();
-  // An explicit `env` means "this run is sealed": no .env, and no home directory either, or a
-  // stray ~/.config/jira-fetch.yaml would still leak in through discovery.
-  const home = deps.home ?? (deps.env ? undefined : Deno.env.get('HOME') ?? undefined);
-  const env = deps.env ?? { ...await loadDotenv(cwd), ...readProcessEnv() };
 
   let config: Config;
   try {
-    const found = args.config
-      ? { path: args.config, data: await loadConfigFile(args.config) }
-      : await discoverConfigFile(cwd, home);
+    const projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
+    const filePath = configPathFor(projectRoot, deps.configDir ?? userConfigDir());
 
     config = resolveConfig({
-      flags: { baseUrl: args.baseUrl, email: args.email, token: args.token, out: args.out },
-      env,
-      file: found?.data,
-      filePath: found?.path,
+      flags: { out: args.out },
+      file: await loadProjectConfig(filePath, projectRoot),
+      filePath,
       cwd,
-      home,
     });
   } catch (cause) {
     if (cause instanceof ConfigError) {
@@ -141,8 +118,6 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     }
     throw cause;
   }
-
-  for (const warning of config.warnings) console.error(`warning: ${warning}`);
 
   if (args.jql && !config.allowJql) {
     console.error('error: --jql is disabled by this configuration (allowJql: false)');
@@ -163,7 +138,7 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     console.log = () => {
       throw new Error('stdout belongs to the MCP protocol; write to stderr instead');
     };
-    log(`config: ${config.configPath ?? '(none found)'}`);
+    log(`config: ${config.configPath}`);
     log(`site:   ${config.baseUrl}`);
     log(`output: ${config.outDir}`);
 
@@ -183,7 +158,7 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     return EXIT.ok;
   }
 
-  log(`config: ${config.configPath ?? '(none found)'}`);
+  log(`config: ${config.configPath}`);
   log(`site:   ${config.baseUrl}`);
   log(`output: ${config.outDir}${args.dryRun ? ' (dry run)' : ''}`);
 

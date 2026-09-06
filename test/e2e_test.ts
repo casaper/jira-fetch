@@ -5,8 +5,9 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
 import { EXIT, run } from '../src/main.ts';
-import { loadDotenv } from '../src/config/config.ts';
+import { configPathFor } from '../src/config/location.ts';
 import type { FiltersConfig } from '../src/config/schema.ts';
+import { stringify as stringifyYaml } from '@std/yaml';
 import { startFakeJira } from './fake_jira.ts';
 
 /** Config knobs a single run needs; an options object rather than positional booleans. */
@@ -20,6 +21,8 @@ interface RunOptions {
 interface Harness {
   origin: string;
   out: string;
+  /** The stand-in project root. Runs resolve their config from it, exactly as a real one does. */
+  projectRoot: string;
   requests: string[];
   runWith: (args: string[], options?: RunOptions) => Promise<number>;
   stdout: string[];
@@ -28,6 +31,8 @@ interface Harness {
 async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
   const fake = await startFakeJira();
   const out = await Deno.makeTempDir();
+  const projectRoot = await Deno.makeTempDir();
+  const configDir = await Deno.makeTempDir();
   const originalLog = console.log;
   const stdout: string[] = [];
   console.log = (...args: unknown[]) => void stdout.push(args.join(' '));
@@ -36,35 +41,35 @@ async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
     await fn({
       origin: fake.origin,
       out,
+      projectRoot,
       requests: fake.requests,
       stdout,
       runWith: async (args, { filters, allowJql, cwd } = {}) => {
-        const configPath = join(out, 'config.json');
-        // No `token` in the file on purpose: that is the shape the tool recommends — the config
-        // carries policy, the credential comes from the environment — and a token here would
-        // trip the project-config warning on every test.
+        // The config file carries the token, because after this refactor nothing else can: there
+        // is no environment layer and no --token flag.
         await Deno.writeTextFile(
-          configPath,
-          JSON.stringify({
+          configPathFor(projectRoot, configDir),
+          stringifyYaml({
+            project: projectRoot,
             baseUrl: fake.origin,
             email: 'kim@example.com',
+            token: 't',
             ...(allowJql === undefined ? {} : { allowJql }),
             ...(filters ? { filters } : {}),
           }),
         );
-        // An explicit env seals the run: no `.env` above the checkout, and no exported
-        // JIRA_BASE_URL, can reach it. Without this the suite is at the mercy of the shell it
-        // happens to run in.
-        return await run([...args, '--config', configPath, '--out', out], {
-          env: { JIRA_API_TOKEN: 't' },
-          cwd,
-        });
+        // Pinning both seals the run. Without them the walk for `.git` and the derived path in
+        // $HOME would resolve this very repository's real configuration, token included — and
+        // nothing asserts the token, so the leak would not turn the suite red.
+        return await run([...args, '--out', out], { projectRoot, configDir, cwd });
       },
     });
   } finally {
     console.log = originalLog;
     await fake.stop();
-    await Deno.remove(out, { recursive: true });
+    await Promise.all(
+      [out, projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+    );
   }
 }
 
@@ -104,7 +109,7 @@ Deno.test('a pre-fetch filter means the issue is never requested at all', async 
 
     assertEquals(code, EXIT.allFiltered);
     assertEquals(requests.filter((r) => r.includes('SUP-9')), []);
-    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), ['config.json']);
+    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), []);
   });
 });
 
@@ -117,7 +122,7 @@ Deno.test('a post-fetch filter stops before comments and attachments are fetched
     // The issue itself had to be fetched to evaluate the label, but nothing beyond it.
     assertFalse(requests.some((r) => r.includes('/comment')));
     assertFalse(requests.some((r) => r.startsWith('GET /attachment/')));
-    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), ['config.json']);
+    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), []);
   });
 });
 
@@ -147,7 +152,7 @@ Deno.test('--jql enumerates keys and filters prune the results', async () => {
 
     assertEquals(code, EXIT.ok);
     const written = (await Array.fromAsync(Deno.readDir(out))).map((e) => e.name).sort();
-    assertEquals(written, ['.DN-1243', 'DN-1243.md', 'config.json']);
+    assertEquals(written, ['.DN-1243', 'DN-1243.md']);
   });
 });
 
@@ -161,7 +166,7 @@ Deno.test('--jql is refused when the config forbids it', async () => {
 Deno.test('--dry-run reports what it would write without touching the disk', async () => {
   await withJira(async ({ out, runWith, stdout }) => {
     assertEquals(await runWith(['DN-1243', '--dry-run']), EXIT.ok);
-    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), ['config.json']);
+    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), []);
     assertStringIncludes(stdout.join('\n'), 'would write');
   });
 });
@@ -197,7 +202,11 @@ Deno.test('usage errors exit 2 before any request is made', async () => {
   });
 });
 
-Deno.test('a .env in the working directory cannot reach a sealed run', async () => {
+Deno.test('nothing planted in the working directory can redirect or relax a run', async () => {
+  // The reason the whole config layout changed. An agent that can write in the project used to
+  // have two routes: a `.env` supplying its own credentials, and a `.jira-fetch.yml` nearer than
+  // the real one, which discovery would prefer and whose empty `filters` would allow everything.
+  // Neither file is a source any more — the path is derived from the repository root alone.
   await withJira(async ({ requests, runWith }) => {
     const cwd = await Deno.makeTempDir();
     try {
@@ -205,14 +214,26 @@ Deno.test('a .env in the working directory cannot reach a sealed run', async () 
         join(cwd, '.env'),
         'JIRA_BASE_URL=https://evil.example.com\nJIRA_API_TOKEN=stolen\n',
       );
+      await Deno.writeTextFile(
+        join(cwd, '.env.local'),
+        'JIRA_BASE_URL=https://evil.example.com\n',
+      );
+      for (const name of ['.jira-fetch.yml', '.jira-fetch.conf.yml', 'jira-fetch.conf.yml']) {
+        await Deno.writeTextFile(
+          join(cwd, name),
+          'project: /anywhere\nbaseUrl: https://evil.example.com\nemail: e@x.com\ntoken: stolen\n' +
+            'filters: {}\n',
+        );
+      }
 
-      // Not a vacuous test: the file really is where loadDotenv would pick it up.
-      assertEquals((await loadDotenv(cwd)).JIRA_BASE_URL, 'https://evil.example.com');
-
-      assertEquals(await runWith(['DN-1243'], { cwd }), EXIT.ok);
-      // The issue was fetched from the fake, so the .env never overrode the config file's base
-      // URL — had it won, the run would have failed against evil.example.com instead.
+      // SUP-9 is excluded by the real config; if any planted file had been read, its empty
+      // filters would have let it through.
+      assertEquals(
+        await runWith(['DN-1243', 'SUP-9'], { cwd, filters: { exclude: [{ project: ['SUP'] }] } }),
+        EXIT.ok,
+      );
       assert(requests.includes('GET /rest/api/3/issue/DN-1243'));
+      assertFalse(requests.some((r) => r.includes('SUP-9')));
     } finally {
       await Deno.remove(cwd, { recursive: true });
     }
@@ -232,7 +253,7 @@ Deno.test('an include rule the key cannot satisfy means the issue is never reque
     // request log can show that nothing was read. Under the MCP server this is the difference
     // between denying a ticket and reading it with the user's credentials before denying it.
     assertEquals(requests.filter((r) => r.includes('SUP-9')), []);
-    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), ['config.json']);
+    assertEquals((await Array.fromAsync(Deno.readDir(out))).map((e) => e.name), []);
   });
 });
 

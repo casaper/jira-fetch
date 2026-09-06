@@ -21,7 +21,7 @@ const configFor = (fake: Fake, out: string, filters?: FiltersConfig): Config => 
   outDir: out,
   filters: compileFilters(filters),
   people: People.parse({}),
-  warnings: [],
+  configPath: '/config/jira-fetch/test.yml',
 });
 
 async function withSession(

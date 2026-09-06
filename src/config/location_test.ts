@@ -111,10 +111,9 @@ Deno.test('findProjectRoot walks up to the directory holding .git', async () => 
     await Deno.mkdir(join(root, '.git'));
     const nested = join(root, 'src', 'deep');
     await Deno.mkdir(nested, { recursive: true });
-    // `resolve` normalizes but does not follow symlinks, so on macOS this stays /var/... rather
-    // than becoming /private/var/... . That asymmetry is why `assertProjectMatches` falls back to
-    // `Deno.realPath` before it refuses a mismatch.
-    assertEquals(await findProjectRoot(nested), root);
+    // Canonicalised: on macOS the temp dir is /var/... but Deno.cwd() reports /private/var/... .
+    // The filename is derived from this, so the two spellings must not name different files.
+    assertEquals(await findProjectRoot(nested), await Deno.realPath(root));
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -124,7 +123,7 @@ Deno.test('a .git file counts: that is how a worktree and a submodule spell it',
   const root = await Deno.makeTempDir();
   try {
     await Deno.writeTextFile(join(root, '.git'), 'gitdir: /elsewhere/.git/worktrees/x\n');
-    assertEquals(await findProjectRoot(root), root);
+    assertEquals(await findProjectRoot(root), await Deno.realPath(root));
   } finally {
     await Deno.remove(root, { recursive: true });
   }

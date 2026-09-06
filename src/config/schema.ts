@@ -115,10 +115,17 @@ export const People = z.strictObject({
 
 export const ConfigFile = z.strictObject({
   $schema: z.string().optional().describe('Path or URL of this JSON Schema, for editor support'),
+  project: z.string().min(1).describe(
+    'Absolute path of the git repository this configuration governs. The filename is derived ' +
+      'from this path, and the derivation is not injective — /a/b_c and /a_b/c produce the same ' +
+      'name — so the tool compares this key against the repository it is actually running in and ' +
+      "refuses a mismatch, rather than silently applying another project's filters.",
+  ),
   baseUrl: z.url().optional().describe('Jira site, e.g. https://your-site.atlassian.net'),
   email: z.email().optional().describe('Atlassian account email'),
   token: z.string().min(1).optional().describe(
-    'Atlassian API token. Prefer the JIRA_API_TOKEN environment variable.',
+    'Atlassian API token. Kept here rather than in the environment: an exported token is one an ' +
+      "agent's own shell can send to Jira without going through this tool at all.",
   ),
   out: z.string().min(1).optional().describe(
     'Output directory; relative paths resolve against the working directory',
