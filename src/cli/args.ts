@@ -7,15 +7,19 @@ export class UsageError extends Error {
   override readonly name = 'UsageError';
 }
 
-/** The flags that also exist as config keys are derived from the schema; the rest are CLI-only
- * and have no config-file counterpart. */
-export type Args = Pick<ConfigFile, 'baseUrl' | 'email' | 'token' | 'out'> & {
+/** `out` is the one flag that also exists as a config key, and it is derived from the schema so a
+ * rename there is a compile error here. Everything else is CLI-only.
+ *
+ * Nothing that decides *which* issues may be fetched can be set from argv, in either mode: the
+ * credentials and the filters live in the config file and only there. A flag for them would be a
+ * way to talk the tool out of its own policy, which is the thing `jira-fetch mcp` exists to make
+ * impossible. */
+export type Args = Pick<ConfigFile, 'out'> & {
   /** `fetch` writes documents for the keys below; `mcp` serves the same pipeline over stdio and
    * takes its keys from tool calls instead. */
   mode: 'fetch' | 'mcp';
   keys: string[];
   jql?: string;
-  config?: string;
   dryRun: boolean;
   verbose: boolean;
   help: boolean;
@@ -30,6 +34,24 @@ export const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
  * usage error naming the bad key instead of a server nobody asked for. */
 const MCP_COMMAND = 'mcp';
 
+/**
+ * Flags that used to exist, and why each had to go.
+ *
+ * Kept as messages rather than dropped into the generic "unknown option" path because every one
+ * of them was documented, and a reader who tries the old spelling deserves to be told where the
+ * setting went rather than left guessing. They are not deprecations: none of them still works.
+ */
+const REMOVED: Record<string, string> = {
+  '--config': '--config was removed: the config file is derived from the git repository you are ' +
+    'in, so that nothing can point this tool at a different policy. Run `jira-fetch config-file` ' +
+    'to see the path.',
+  '-c': '-c was removed (it was short for --config); run `jira-fetch config-file` for the path.',
+  '--token': '--token was removed: the API token belongs in the config file, not in a process ' +
+    'table or a server definition. Run `jira-fetch setup`.',
+  '--base-url': '--base-url was removed: set baseUrl in the config file. Run `jira-fetch setup`.',
+  '--email': '--email was removed: set email in the config file. Run `jira-fetch setup`.',
+};
+
 export const HELP = `jira-fetch ${VERSION}
 Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
 
@@ -40,10 +62,6 @@ USAGE
 
 OPTIONS
   -o, --out <dir>      output directory (default: current directory)
-  -c, --config <path>  config file to use, skipping discovery
-      --base-url <url> Jira site, e.g. https://your-site.atlassian.net
-      --email <email>  Atlassian account email
-      --token <token>  Atlassian API token
       --jql <query>    fetch by JQL; refused when the config sets allowJql: false
   -n, --dry-run        report what would be fetched and filtered; write nothing
   -v, --verbose        per-issue progress and filter decisions on stderr
@@ -51,26 +69,26 @@ OPTIONS
       --version        show the version
 
 CONFIGURATION
-  Resolved per key: CLI flags, then environment, then .env, then the config file.
-    JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_FETCH_OUT
-    .env and .env.local           nearest ancestor directory that has either
-    .jira-fetch[.conf].yml|.yaml|.json    searched upward from the working directory
-    jira-fetch.conf.yml|.yaml|.json       same, without the leading dot
-    ~/.config/jira-fetch[.conf].yml|.yaml|.json
-    ~/.jira-fetch.conf.yml|.yaml|.json
+  One YAML file per project, in your own config directory, and nothing else. No environment
+  variables, no .env, no config file inside the project, no flag to point elsewhere.
 
-  The nearest config file found is the only one read; configurations never layer. Commit one
-  to a project and its filters apply to everyone working in that tree. Your API token is not
-  part of that: keep it in .env.local, the environment, or --token.
+    ~/.config/jira-fetch/<project-path>.yml     macOS and Linux
+    %APPDATA%\\jira-fetch\\<project-path>.yml     Windows
 
-  Or keep both in ~/.config/jira-fetch.yaml, the token key included, so that nothing about your
-  Jira access lives in the project. A token there raises no warning; chmod 600 the file. That
-  is the setup that matters when the caller is an agent; see MCP SERVER below.
+  The name is derived from the git repository you are in, so jira-fetch config-file is the
+  only way to be sure which file a run will read. It holds the credentials (baseUrl, email,
+  token) and the policy:
 
-  Only the file can set these:
     filters     which tickets are fetched, and which comments end up in the document
     people      which of reporter/assignee/commenter appear, and how much each says
-    allowJql    when false, --jql is refused
+    allowJql    when false, --jql is refused and search_issues is not offered at all
+
+  Run jira-fetch setup to create or edit it.
+
+  That the path is derived rather than searched for is the point, not a detail. A file appearing
+  inside the project cannot shadow it, no flag can name a different one, and there is no
+  environment variable to export — so what an agent may fetch is decided by a file outside the
+  tree it works in. See MCP SERVER below.
 
 MCP SERVER
   jira-fetch mcp speaks the Model Context Protocol on stdin/stdout, for Claude Code and other
@@ -84,16 +102,17 @@ MCP SERVER
   There is no tool that changes anything in Jira, and none takes a path. The config's filters
   decide which issues may be fetched; a client cannot override them.
 
-  Serving an agent that can also edit the project, start it like this:
+  Serving an agent that can also edit the project, register it once for your user:
 
-    claude mcp add --scope user jira-fetch -- \\
-      jira-fetch mcp --config /home/you/.config/jira-fetch.yaml
+    claude mcp add --scope user jira-fetch -- jira-fetch mcp --out docs/jira
 
-  --config skips discovery, so a .jira-fetch.yml appearing in the tree cannot shadow the
-  policy, and --scope user keeps the launch command out of the tree too. Spell the path in
-  full: a spawned process does not expand ~. Put the token in that file and unset
-  JIRA_API_TOKEN: the environment outranks the file, and an exported token is one the
-  agent's own shell can send to Jira without going through this server at all. See the README.
+  --scope user keeps the launch command out of the project tree. There is nothing else to pass:
+  the server finds the same config file this CLI would, and neither a planted file nor an
+  exported variable can change which one that is.
+
+  jira-fetch setup also writes deny rules telling Claude Code to keep away from the config
+  directory. Those stop the well-behaved path; they are not a sandbox. The only hard boundary is
+  what the API token itself is permitted to see on Atlassian's side.
 
 OUTPUT
   <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)
@@ -106,16 +125,18 @@ EXIT CODES
 
 export function parseCliArgs(argv: string[]): Args {
   const parsed = parseArgs(argv, {
-    string: ['out', 'config', 'base-url', 'email', 'token', 'jql'],
+    string: ['out', 'jql'],
     boolean: ['dry-run', 'verbose', 'help', 'version'],
     alias: {
       o: 'out',
-      c: 'config',
       n: 'dry-run',
       v: 'verbose',
       h: 'help',
     },
     unknown: (arg) => {
+      // `--flag=value` reaches here whole, so match on the name alone.
+      const removed = REMOVED[arg.split('=')[0]];
+      if (removed) throw new UsageError(removed);
       if (arg.startsWith('-')) throw new UsageError(`unknown option: ${arg}`);
       return true;
     },
@@ -129,10 +150,6 @@ export function parseCliArgs(argv: string[]): Args {
     keys: [],
     jql: parsed.jql || undefined,
     out: parsed.out || undefined,
-    config: parsed.config || undefined,
-    baseUrl: parsed['base-url'] || undefined,
-    email: parsed.email || undefined,
-    token: parsed.token || undefined,
     dryRun: parsed['dry-run'],
     verbose: parsed.verbose,
     help: parsed.help,

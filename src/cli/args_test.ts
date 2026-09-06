@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertFalse, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertFalse, assertStringIncludes, assertThrows } from '@std/assert';
 import { parseCliArgs, UsageError } from './args.ts';
 
 Deno.test('issue keys are normalised to upper case', () => {
@@ -35,26 +35,34 @@ Deno.test('keys and --jql combine', () => {
 });
 
 Deno.test('short aliases match their long forms', () => {
-  const args = parseCliArgs(['DN-1', '-o', 'tmp', '-n', '-v', '-c', 'cfg.json']);
+  const args = parseCliArgs(['DN-1', '-o', 'tmp', '-n', '-v']);
   assertEquals(args.out, 'tmp');
-  assertEquals(args.config, 'cfg.json');
   assert(args.dryRun);
   assert(args.verbose);
 });
 
-Deno.test('credential flags are read', () => {
-  const args = parseCliArgs([
-    'DN-1',
-    '--base-url',
-    'https://x.atlassian.net',
-    '--email',
-    'a@b.co',
-    '--token',
-    't',
-  ]);
-  assertEquals(args.baseUrl, 'https://x.atlassian.net');
-  assertEquals(args.email, 'a@b.co');
-  assertEquals(args.token, 't');
+Deno.test('every flag that could override the policy is refused, and says where it went', () => {
+  // Not folded into "unknown option": each of these was documented, so trying the old spelling
+  // should say where the setting lives now rather than leaving the reader to guess.
+  for (
+    const [flag, needle] of [
+      ['--config', 'jira-fetch config-file'],
+      ['-c', 'jira-fetch config-file'],
+      ['--token', 'jira-fetch setup'],
+      ['--base-url', 'baseUrl in the config file'],
+      ['--email', 'email in the config file'],
+    ]
+  ) {
+    const error = assertThrows(() => parseCliArgs(['DN-1', flag, 'x']), UsageError);
+    assertStringIncludes(error.message, needle);
+  }
+});
+
+Deno.test('the removed flags are refused in their --flag=value form too', () => {
+  const error = assertThrows(() => parseCliArgs(['DN-1', '--token=secret']), UsageError);
+  assertStringIncludes(error.message, 'jira-fetch setup');
+  // And the value never lands anywhere it could be printed back.
+  assertFalse(error.message.includes('secret'));
 });
 
 Deno.test('--help and --version short-circuit the key requirement', () => {

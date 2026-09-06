@@ -302,8 +302,12 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
   const command = new Deno.Command(Deno.execPath(), {
     args: [
       'run',
+      // The same narrowed set the shipped binary is compiled with (PERMISSIONS in
+      // scripts/build_all.ts). Running the real server under it here is what proves nothing in
+      // the pipeline — @std/*, the MCP package, zod — reads a variable outside this list; a
+      // NotCapable would only ever surface at runtime.
       '--allow-net',
-      '--allow-env',
+      '--allow-env=HOME,APPDATA,USERPROFILE',
       '--allow-read',
       '--allow-write',
       new URL('../src/main.ts', import.meta.url).pathname,

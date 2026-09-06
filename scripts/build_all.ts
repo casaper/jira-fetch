@@ -8,7 +8,10 @@
 
 export const PERMISSIONS = [
   '--allow-net',
-  '--allow-env',
+  // Narrowed to the variables that locate the config directory, and nothing else. There are no
+  // JIRA_* variables any more: credentials live in the config file, so a broad --allow-env would
+  // grant a read of the whole environment for no reason the tool has.
+  '--allow-env=HOME,APPDATA,USERPROFILE',
   '--allow-read',
   '--allow-write',
 ];
