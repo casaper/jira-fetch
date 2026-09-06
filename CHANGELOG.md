@@ -6,6 +6,20 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.5.4 — 2026-09-06
+
+### Breaking changes
+
+- keep the project path's case, renaming every config file ([37dfb53](https://github.com/casaper/jira-fetch/commit/37dfb535cba533d541d21c8f4b89fdbc1c25226a))
+
+### Bug Fixes
+
+- **config:** keep the project path's case, renaming every config file ([37dfb53](https://github.com/casaper/jira-fetch/commit/37dfb535cba533d541d21c8f4b89fdbc1c25226a))
+
+### Documentation
+
+- describe only what jira-fetch does, not what it did ([025d299](https://github.com/casaper/jira-fetch/commit/025d299938e58dd93a89eecfe7ec787707d7772a))
+
 ## 0.5.3 — 2026-09-06
 
 ### Features
