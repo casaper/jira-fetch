@@ -216,6 +216,21 @@ first time, when everything still 404s.
 `assertCanPublish` checks `npm whoami` against it — again on the output, since being logged in as
 somebody else also exits 0.
 
+**Two-factor publishing: one code per package, from `JIRA_FETCH_NPM_OTP`.** Set it to a command
+that prints the current one-time code and `publishNpm` runs it before each publish:
+
+```sh
+export JIRA_FETCH_NPM_OTP='pass-cli item totp --output=json pass://pers/npmjs.com/totp | jq -r .totp'
+```
+
+Per package, not once: a TOTP is single-use, and seven packages of ~35 MB span several 30-second
+windows anyway. When two publishes fall inside one window the same digits come back, so `nextOtp`
+waits for the next window rather than handing npm a code it has already rejected — and that wait is
+**bounded** (`OTP_ATTEMPTS`), because the unbounded version hangs the release for ever the moment
+the command stops advancing. It throws rather than calling `fail` so the loop is testable at all;
+`publishNpm` turns that back into a clean exit 2. Unset, npm prompts for itself, which works only
+because `run` inherits stdin.
+
 That check belongs behind `release.ts`'s `if (publishing)` gate and must stay there. `npm whoami`
 is a **network** call, and `--no-publish` exists to stop at a local tag when cross-compilation
 fails; making it depend on the registry being reachable would break the one path whose whole point

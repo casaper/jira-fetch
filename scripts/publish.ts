@@ -126,19 +126,96 @@ const writeChecksums = async (): Promise<string> => {
 const alreadyPublished = async (name: string, version: string): Promise<boolean> =>
   await output('npm', 'view', `${name}@${version}`, 'version') === version;
 
+/** A command that prints a fresh npm one-time code on stdout, read from the environment so no
+ * password-manager path lives in the repository. Optional: without it npm prompts for itself,
+ * which works now that `run` inherits stdin.
+ *
+ *   export JIRA_FETCH_NPM_OTP='pass-cli item totp --output=json pass://pers/npmjs.com/totp | jq -r .totp'
+ */
+export const OTP_ENV = 'JIRA_FETCH_NPM_OTP';
+
+/** Seconds until the next TOTP window opens. Codes step every 30 seconds on the Unix epoch, and
+ * the extra second is to land inside the new window rather than exactly on its edge. */
+export const untilNextWindow = (now = Date.now()): number => 31 - (Math.floor(now / 1000) % 30);
+
+/** How many windows to wait through before giving up on a fresh code. Two is enough for the
+ * intended case — one spent code, one wait — and small enough that a command returning a constant
+ * fails in about a minute instead of hanging the release for good. */
+const OTP_ATTEMPTS = 3;
+
+/**
+ * A one-time code npm has not seen yet in this run, or `undefined` when no command is configured.
+ *
+ * Fetching once and reusing the code would not work: a TOTP is single-use, and seven packages of
+ * ~35 MB take several 30-second windows to upload anyway. So each publish gets its own code — and
+ * when two publishes fall inside one window the same digits come back, which is why this waits for
+ * the next window instead of handing npm a code it has already rejected.
+ *
+ * Bounded, because the unbounded version hangs forever the moment the command stops advancing —
+ * a cached or stale value, a misconfigured entry — and a release script that waits silently for
+ * ever is worse than one that stops and says why.
+ */
+export const nextOtp = async (
+  used: Set<string>,
+  wait: (seconds: number) => Promise<void> = (seconds) =>
+    new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
+): Promise<string | undefined> => {
+  const command = Deno.env.get(OTP_ENV)?.trim();
+  if (!command) return undefined;
+
+  for (let attempt = 1; attempt <= OTP_ATTEMPTS; attempt++) {
+    // Its own Deno.Command rather than `output`: stdout is captured because the code is the
+    // answer, while stdin and stderr stay on the terminal so a locked vault can ask for a
+    // passphrase instead of hanging with its prompt swallowed.
+    const { stdout, success } = await new Deno.Command('sh', {
+      args: ['-c', command],
+      stdin: 'inherit',
+      stderr: 'inherit',
+    }).output();
+    const code = new TextDecoder().decode(stdout).trim();
+    if (!success || !/^\d{6,8}$/.test(code)) {
+      throw new Error(`${OTP_ENV} did not print a one-time code:\n  ${command}`);
+    }
+    if (!used.has(code)) {
+      used.add(code);
+      return code;
+    }
+    if (attempt === OTP_ATTEMPTS) break;
+    const seconds = untilNextWindow();
+    console.log(`  that code is spent; waiting ${seconds}s for the next one...`);
+    await wait(seconds);
+  }
+  // Thrown rather than `fail`ed so the loop can be tested at all: `fail` exits the process, which
+  // would take the test runner with it. publishNpm turns it back into a clean exit-2 message.
+  throw new Error(
+    `${OTP_ENV} kept returning a code this run has already used, after ${OTP_ATTEMPTS} tries:\n` +
+      `  ${command}\n` +
+      '  It should print the current one-time code, which changes every 30 seconds.',
+  );
+};
+
 /** Stages and publishes the seven packages, in the order `stage` returns them: every platform
  * package before the one that depends on them, so `jira-fetch` never sits on the registry with
  * optional dependencies that cannot resolve. */
 const publishNpm = async (version: string): Promise<void> => {
   const packages = await stage(version, NPM_DIST);
+  const used = new Set<string>();
   for (const pkg of packages) {
     if (await alreadyPublished(pkg.name, version)) {
       console.log(`  ${pkg.name}@${version} is already published`);
       continue;
     }
     console.log(`  ${pkg.name}@${version}`);
+    const otp = await nextOtp(used).catch((cause) => fail((cause as Error).message));
     // Scoped packages default to restricted, which would publish something nobody can install.
-    await run('npm', 'publish', '--access', 'public', pkg.dir);
+    await run(
+      'npm',
+      'publish',
+      '--access',
+      'public',
+      ...(otp ? [`--otp=${otp}`] : []),
+      pkg.dir,
+    );
   }
 };
 
