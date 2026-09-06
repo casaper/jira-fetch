@@ -32,12 +32,13 @@ deno task types                       # regenerate src/jira/schema_types.ts from
 deno task vendor:spec                 # re-fetch the Atlassian schemas into spec/ (the only networked task)
 deno task build                       # host binary -> dist/
 deno task build:all                   # all six release targets
+deno task npm:pack                    # stage the npm packages in dist/npm
 deno task hooks                       # once per clone: enable the commit-msg hook
 deno task commitlint --from <rev>     # lint the commit messages after <rev>
 deno task changelog                   # regenerate CHANGELOG.md from the history
 deno task release patch               # bump, changelog, commit, tag, push, build, publish
 deno task release patch --no-publish  # stop at the tag
-deno task publish                     # push, build:all, checksum and attach to a GitHub release
+deno task publish                     # push, build, checksum, attach to a release, publish to npm
 ```
 
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
@@ -173,6 +174,53 @@ not part of `deno task check`, which would then fail on every unreleased commit.
 **The version string lives in two files**: `deno.json` and `VERSION` in `src/cli/args.ts`, which
 `--help` prints. Nothing at type level can hold them equal, so `scripts/release.ts` owns both and
 refuses to start when they have drifted — the same class of hazard as `PERMISSIONS` above.
+
+### npm is the install channel, and its publish is the one step that cannot be undone
+
+`jira-fetch` is published to npm as seven packages (`scripts/npm_package.ts`): six platform
+packages holding one compiled binary each and declaring the `os`/`cpu` npm matches against, plus
+the `jira-fetch` package a user installs, which lists all six as `optionalDependencies` so exactly
+one binary is downloaded. Its `bin` is a generated Node shim that resolves its platform sibling and
+`spawnSync`s it with `stdio: 'inherit'`.
+
+**npm ships the compiled binary, and that is why this channel is safe.** Permissions are baked in
+by `deno compile`, so `PERMISSIONS` in `scripts/build_all.ts` stays the single source of truth for
+what the MCP server may do. `deno install`/JSR would hand that decision to whatever `--allow-*`
+flags the installing user typed, which is why this is not on JSR: convenience is not worth making
+the permission set unknowable.
+
+Three things about the shim are load-bearing, and `scripts/npm_package_test.ts` pins each:
+
+- **It writes to stderr only.** Under `jira-fetch mcp` stdout is the JSON-RPC stream, and one line
+  from the wrapper would corrupt the session far from its cause.
+- **It forwards the exit code verbatim** (`status === null ? 1 : status`) and re-raises a signal
+  rather than translating it. Exit 2 and 3 are part of the output contract; a wrapper that returned
+  0 for them would be invisible until it mattered.
+- **It contains no backtick**, because it is a JavaScript program embedded in a TypeScript template
+  literal. One in a comment closed the literal early and broke the module; the test now refuses it.
+
+`TARGETS` in `scripts/build_all.ts` carries `os` and `cpu` in npm's vocabulary for this, so the
+platform matrix is still declared once. The manifests and the shim are **generated, never
+hand-edited** — the same rule as `CHANGELOG.md` and `schema/jira-fetch.schema.json`.
+`deno task npm:pack` stages them into `dist/npm` for inspection without publishing.
+
+**`publishNpm` runs last in `scripts/publish.ts`, deliberately.** Everything before it can be
+re-run; a published npm version cannot be unpublished after 72 hours and can never be republished,
+so a bad shim in 0.5.1 is permanent and the fix is 0.5.2. It skips what the registry already has,
+and that probe compares `npm view`'s **output** to the version rather than its exit status: for a
+package that exists without that version, `npm view` exits 0 and prints nothing, so a `succeeds`
+probe would read a missing version as a published one and silently skip the publish — passing the
+first time, when everything still 404s.
+
+`NPM_SCOPE` in `scripts/npm_package.ts` is the npm account the platform packages publish under, so
+`assertCanPublish` checks `npm whoami` against it — again on the output, since being logged in as
+somebody else also exits 0.
+
+That check belongs behind `release.ts`'s `if (publishing)` gate and must stay there. `npm whoami`
+is a **network** call, and `--no-publish` exists to stop at a local tag when cross-compilation
+fails; making it depend on the registry being reachable would break the one path whose whole point
+is that it needs nothing but this machine. `publish()` runs the same preflight itself, so a
+standalone `deno task publish` is still checked.
 
 ## Layout
 

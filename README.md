@@ -28,8 +28,23 @@ an attachment nobody embedded, not a broken link.
 
 ## Install
 
-Grab the binary for your platform from the release artifacts — it is self-contained and needs no
-Deno installation. Or run from source:
+```sh
+npm install -g jira-fetch
+```
+
+npm fetches one prebuilt binary for your platform — nothing is compiled, and nothing needs Node or
+Deno once it is there. `npm update -g jira-fetch` upgrades it, and `npx jira-fetch DN-1243` runs it
+without installing anything at all.
+
+Or take the binary straight from the [release artifacts](https://github.com/casaper/jira-fetch/releases), which is the same file by another
+route. On macOS they are neither signed nor notarised, so Gatekeeper quarantines them on download:
+
+```sh
+chmod +x jira-fetch-macos-aarch64
+xattr -d com.apple.quarantine jira-fetch-macos-aarch64
+```
+
+Or run from source:
 
 ```sh
 deno task dev DN-1243
@@ -230,7 +245,14 @@ token for every class of ticket you want to fence off.
 ### Setting it up with Claude Code
 
 ```sh
+npm install -g jira-fetch
 claude mcp add --scope user jira-fetch -- jira-fetch mcp --out docs/jira
+```
+
+Or without installing anything, at the cost of npx resolving the package on each launch:
+
+```sh
+claude mcp add --scope user jira-fetch -- npx -y jira-fetch mcp --out docs/jira
 ```
 
 There is nothing else to pass. The server finds the same config file the CLI would — derived from
