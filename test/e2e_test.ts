@@ -315,3 +315,25 @@ Deno.test('outside a git repository the error says so rather than naming a missi
     await Deno.remove(outside, { recursive: true });
   }
 });
+
+Deno.test('setup refuses without a terminal, and says where the file would be', async () => {
+  // The barrier that keeps this command — the one that writes credentials and can relax filters —
+  // off the ordinary agent path: a Bash tool has no controlling terminal. Not a boundary; anything
+  // that can allocate a pty gets past it.
+  const projectRoot = await Deno.makeTempDir();
+  const configDir = await Deno.makeTempDir();
+  try {
+    assertEquals(await run(['setup'], { projectRoot, configDir }), EXIT.usageError);
+    assertEquals(await Array.fromAsync(Deno.readDir(configDir)), []);
+  } finally {
+    await Promise.all(
+      [projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+    );
+  }
+});
+
+Deno.test('setup refuses arguments that name work it will not do', async () => {
+  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y' };
+  assertEquals(await run(['setup', 'DN-1'], deps), EXIT.usageError);
+  assertEquals(await run(['setup', '--jql', 'x'], deps), EXIT.usageError);
+});

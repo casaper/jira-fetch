@@ -7,6 +7,8 @@ import { configPathFor, findProjectRoot, userConfigDir } from './config/location
 import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 import { serveMcp } from './mcp/server.ts';
+import { runSetup } from './setup/tui.ts';
+import { dirname } from '@std/path';
 
 /** Whether a path is there, without caring why not — a permission error is still "no file to
  * print a note about", and the note is advisory. */
@@ -115,6 +117,15 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   try {
     const projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
     const filePath = configPathFor(projectRoot, deps.configDir ?? userConfigDir());
+
+    if (args.mode === 'setup') {
+      return await runSetup({
+        configPath: filePath,
+        configDir: dirname(filePath),
+        projectRoot,
+        home: Deno.env.get('HOME') ?? Deno.env.get('USERPROFILE') ?? '',
+      });
+    }
 
     if (args.mode === 'configFile') {
       // Printed whether or not the file is there, so `$EDITOR "$(jira-fetch config-file)"` works

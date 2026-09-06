@@ -17,8 +17,8 @@ export class UsageError extends Error {
 export type Args = Pick<ConfigFile, 'out'> & {
   /** `fetch` writes documents for the keys below; `mcp` serves the same pipeline over stdio and
    * takes its keys from tool calls instead; `configFile` prints where this project's
-   * configuration lives and does nothing else. */
-  mode: 'fetch' | 'mcp' | 'configFile';
+   * configuration lives, and `setup` edits it. */
+  mode: 'fetch' | 'mcp' | 'configFile' | 'setup';
   keys: string[];
   jql?: string;
   dryRun: boolean;
@@ -35,6 +35,7 @@ export const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
  * error naming the bad key instead of a mode nobody asked for. */
 const COMMANDS = {
   mcp: 'mcp',
+  setup: 'setup',
   'config-file': 'configFile',
 } as const satisfies Record<string, Args['mode']>;
 
