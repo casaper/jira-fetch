@@ -1,0 +1,4 @@
+# GitHub's Windows runner checks out with core.autocrlf=true. The suite compares file content
+# textually, so a CRLF checkout would fail tests that have nothing to do with line endings — and
+# .editorconfig already says LF everywhere.
+* text=auto eol=lf
