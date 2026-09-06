@@ -94,12 +94,27 @@ the same shape of trap as the `npm view` exit-status probe under Releases.
 honours `.gitignore`: `.claude/plans/` is ignored, which is the only reason a plan file in the tree
 does not turn `deno task check` red.
 
-The first Windows run ever failed 11 tests. Ten were the suite assuming POSIX paths — three
-`file://` URLs turned into paths with `.pathname` instead of `fromFileUrl`, a `sh -c` child, a
-literal `/work/project` compared against a `resolve`d answer, a YAML value that is correctly quoted
-when it holds backslashes. One was a real bug: `userConfigDir(env, os)` joined with the **host's**
-separator rather than the one it was asked about. Cross-platform purity in `src/config/location.ts`
-and `src/setup/claude_settings.ts` is now load-bearing rather than incidental.
+**Windows found things, and it took four rounds to clear them.** Exactly one was a product bug:
+`userConfigDir(env, os)` joined with the **host's** separator rather than the one it was asked
+about, so `userConfigDir(env, 'linux')` answered `\home\kim\...` on a Windows machine. Purity in
+`src/config/location.ts` is load-bearing now, not incidental — the same invariant `projectSlug`
+already states. The rest were the suite assuming a platform, and five are worth not rediscovering:
+
+- **`.pathname` is not a path.** For `file:///D:/x` it is `/D:/x`, which nothing accepts. Three
+  places did it; `fromFileUrl` is the answer. `mcp_test.ts` spawned `src/main.ts` that way, so deno
+  resolved from the wrong place, never found `deno.json`, and died on the first import.
+- **A path is not a module specifier either.** `import { x } from "D:\a\..."` reads `D:` as a
+  scheme. A POSIX path worked only by accident, resolving against the importer's own `file:` base.
+  `import.meta.resolve` gives the URL an import wants; `fromFileUrl` of it gives the path a
+  subprocess argument wants. `scripts/proc_test.ts` needs both, for the same file.
+- **`clearEnv: true` breaks networking on Windows** unless `SYSTEMROOT` is passed through — Winsock
+  cannot initialise without it and every fetch fails before reaching a socket. `test/mcp_test.ts`
+  pins `HOME`, `APPDATA` and `SYSTEMROOT`; none of the three is a way to reach a config file, so
+  the seal is intact.
+- **A `deno eval` program does not survive Windows argument handling** — the vector is rebuilt into
+  one command line and the quotes inside it are lost, silently. Write a script file instead.
+- **Never let a test discard a child's stderr.** `proc_test.ts` did, so three separate causes all
+  presented as "stdout was empty". Keeping it named the last one on the first run.
 
 Release binaries are still cross-compiled and attached to a GitHub release by `deno task publish`,
 from a developer's machine — see Releases. CI does not build or publish anything.
