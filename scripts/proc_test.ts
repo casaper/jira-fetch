@@ -7,9 +7,11 @@ import { output, succeeds } from './proc.ts';
 
 const PROC = fromFileUrl(import.meta.resolve('./proc.ts'));
 
-/** The child `run` is pointed at: it echoes back whatever it was handed on stdin. Deliberately
- * `deno eval` rather than `sh -c`, which does not exist on Windows — the subject here is the
- * stream, not the program at the other end of it. */
+/** The child `run` is pointed at: it echoes back whatever it was handed on stdin. Deliberately a
+ * script file rather than `sh -c` (which does not exist on Windows) or `deno eval` (whose program
+ * would travel as one argument, and Windows rebuilds an argument vector into a command line, so
+ * the quotes in it do not survive). The subject here is the stream, not the program at the other
+ * end of it. */
 const ECHO_STDIN = [
   'const buffer = new Uint8Array(4096);',
   'const read = await Deno.stdin.read(buffer);',
@@ -22,11 +24,13 @@ const ECHO_STDIN = [
 const throughRun = async (stdin: string): Promise<string> => {
   const dir = await Deno.makeTempDir();
   try {
+    const echo = join(dir, 'echo.ts');
+    await Deno.writeTextFile(echo, ECHO_STDIN);
     const script = join(dir, 'driver.ts');
     await Deno.writeTextFile(
       script,
       `import { run } from ${JSON.stringify(PROC)};\n` +
-        `await run(${JSON.stringify(Deno.execPath())}, 'eval', ${JSON.stringify(ECHO_STDIN)});\n`,
+        `await run(${JSON.stringify(Deno.execPath())}, 'run', ${JSON.stringify(echo)});\n`,
     );
     const child = new Deno.Command(Deno.execPath(), {
       args: ['run', '-A', script],

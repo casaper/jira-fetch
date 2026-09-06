@@ -11,7 +11,7 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
 import { dirname, fromFileUrl, join } from '@std/path';
 import { stringify as stringifyYaml } from '@std/yaml';
-import { configPathFor } from '../src/config/location.ts';
+import { configPathFor, userConfigDir } from '../src/config/location.ts';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import type { JSONRPCMessage } from '@modelcontextprotocol/server';
 import { createMcpServer } from '../src/mcp/server.ts';
@@ -260,7 +260,11 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
   await Deno.mkdir(join(outDir, '.git'));
   // realPath because `findProjectRoot` canonicalises, and on macOS the temp dir is a symlink.
   const projectRoot = await Deno.realPath(outDir);
-  const configPath = configPathFor(projectRoot, join(home, '.config', 'jira-fetch'));
+  // Derived with the same function the server will use, rather than restated as
+  // `<home>/.config/jira-fetch`: Windows puts it under %APPDATA% instead, and a test that
+  // hardcodes the unix layout writes the config somewhere the server never looks.
+  const fakeEnv = (name: string) => (name === 'HOME' || name === 'APPDATA' ? home : undefined);
+  const configPath = configPathFor(projectRoot, userConfigDir(fakeEnv));
   await Deno.mkdir(dirname(configPath), { recursive: true });
   await Deno.writeTextFile(
     configPath,
@@ -321,7 +325,9 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
     // A pinned HOME and a cwd inside the fake project are the whole seal: there is no --config to
     // pass and no JIRA_* variable to set, so without these the subprocess would resolve this
     // repository's own configuration, real token included.
-    env: { HOME: home },
+    // APPDATA as well as HOME: it is what locates the directory on Windows, and pinning only
+    // HOME there would send the server to the real one.
+    env: { HOME: home, APPDATA: home },
     clearEnv: true,
     cwd: outDir,
     stdin: 'piped',
