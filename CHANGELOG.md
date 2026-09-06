@@ -6,6 +6,38 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.5.3 — 2026-09-06
+
+### Features
+
+- **release:** say the package is an MCP server where npm searches ([841417a](https://github.com/casaper/jira-fetch/commit/841417a702926fca6152faf67e213d7a0de6ce42))
+- **release:** publish with a scoped token instead of a one-time code ([4787de2](https://github.com/casaper/jira-fetch/commit/4787de24e7355f594edcda59db7427095ad577b2))
+
+### Bug Fixes
+
+- **config:** build the config path with the target os's separator ([069ccca](https://github.com/casaper/jira-fetch/commit/069cccaee7f5085aa2e3ecb37686ad5f16694b50))
+
+### Documentation
+
+- record what the Windows runner actually found ([9060e7d](https://github.com/casaper/jira-fetch/commit/9060e7dba81cd7e906fdc510aef2c9e8051ea2a3))
+- make the README user-facing and move development into CONTRIBUTING ([29e66ce](https://github.com/casaper/jira-fetch/commit/29e66cee6bf5b871fe364b697759cb8a274f7b9e))
+- **release:** record how to verify a published release on Linux ([e019542](https://github.com/casaper/jira-fetch/commit/e019542543ecd6b2d209440ea3320b215f7b42d1))
+
+### Tests
+
+- import proc.ts by URL, since a Windows path is not a specifier ([207e34d](https://github.com/casaper/jira-fetch/commit/207e34d4338290cc8a5829ecfd844ba2857a7121))
+- give the Windows subprocess a SYSTEMROOT, and keep stderr ([10eabd4](https://github.com/casaper/jira-fetch/commit/10eabd4d06f29008ba31c7cf7295d5c09d7adabe))
+- fix the last two Windows failures, in the two subprocess tests ([818c071](https://github.com/casaper/jira-fetch/commit/818c07129ea14e44bc0f91d545d90eeec86c63e7))
+- stop assuming POSIX paths, so the suite runs on Windows ([bfcfa88](https://github.com/casaper/jira-fetch/commit/bfcfa8864ad577b742e0326e8f2a232b522d9cb3))
+
+### Build & Tooling
+
+- run check and the sealed suite in GitHub Actions ([abc298a](https://github.com/casaper/jira-fetch/commit/abc298ab7931a801c0aba6302827a95d6263bd94))
+
+### Chores
+
+- remove path overwrite from .envrc ([29575ec](https://github.com/casaper/jira-fetch/commit/29575ecff69e5246a23fe4aa7813c4cd18a249ea))
+
 ## 0.5.2 — 2026-09-06
 
 ### Features

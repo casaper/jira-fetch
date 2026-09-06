@@ -1,6 +1,6 @@
 {
   "name": "jira-fetch",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "license": "MIT",
   "exports": "./src/main.ts",
   "tasks": {
