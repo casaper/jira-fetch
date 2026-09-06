@@ -16,8 +16,9 @@ export class UsageError extends Error {
  * impossible. */
 export type Args = Pick<ConfigFile, 'out'> & {
   /** `fetch` writes documents for the keys below; `mcp` serves the same pipeline over stdio and
-   * takes its keys from tool calls instead. */
-  mode: 'fetch' | 'mcp';
+   * takes its keys from tool calls instead; `configFile` prints where this project's
+   * configuration lives and does nothing else. */
+  mode: 'fetch' | 'mcp' | 'configFile';
   keys: string[];
   jql?: string;
   dryRun: boolean;
@@ -30,9 +31,12 @@ export type Args = Pick<ConfigFile, 'out'> & {
  * Anything looser reaches `GET /rest/api/3/issue/{key}` as path segments. */
 export const ISSUE_KEY = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 
-/** The one subcommand. Matched as an exact literal rather than "not an issue key", so a typo is a
- * usage error naming the bad key instead of a server nobody asked for. */
-const MCP_COMMAND = 'mcp';
+/** Subcommands, matched as exact literals rather than "not an issue key", so a typo is a usage
+ * error naming the bad key instead of a mode nobody asked for. */
+const COMMANDS = {
+  mcp: 'mcp',
+  'config-file': 'configFile',
+} as const satisfies Record<string, Args['mode']>;
 
 /**
  * Flags that used to exist, and why each had to go.
@@ -59,6 +63,8 @@ USAGE
   jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
   jira-fetch --jql "<JQL>"           fetch every issue matching a query
   jira-fetch mcp                     serve the same pipeline over MCP on stdio
+  jira-fetch setup                   configure this project, interactively
+  jira-fetch config-file             print the path of this project's config file
 
 OPTIONS
   -o, --out <dir>      output directory (default: current directory)
@@ -143,10 +149,12 @@ export function parseCliArgs(argv: string[]): Args {
   });
 
   const positional = parsed._.map((raw) => String(raw).trim());
-  const mcp = positional[0] === MCP_COMMAND;
+  const command = Object.hasOwn(COMMANDS, positional[0] ?? '')
+    ? COMMANDS[positional[0] as keyof typeof COMMANDS]
+    : undefined;
 
   const args: Args = {
-    mode: mcp ? 'mcp' : 'fetch',
+    mode: command ?? 'fetch',
     keys: [],
     jql: parsed.jql || undefined,
     out: parsed.out || undefined,
@@ -158,15 +166,21 @@ export function parseCliArgs(argv: string[]): Args {
 
   if (args.help || args.version) return args;
 
-  if (mcp) {
-    // The tools are the interface in this mode, so anything that names work up front is a
-    // mistake worth catching at startup rather than an argument silently ignored for the life
-    // of a long-running server.
+  if (command !== undefined) {
+    // Neither subcommand fetches anything, so an argument naming work is a mistake worth catching
+    // at startup rather than one silently ignored for the life of a long-running server.
+    const name = positional[0];
     if (positional.length > 1) {
-      throw new UsageError(`"${positional[1]}": jira-fetch mcp takes no issue keys`);
+      throw new UsageError(`"${positional[1]}": jira-fetch ${name} takes no issue keys`);
     }
-    if (args.jql) throw new UsageError('--jql has no meaning for mcp; use the search_issues tool');
-    if (args.dryRun) throw new UsageError('--dry-run has no meaning for mcp');
+    if (args.jql) {
+      throw new UsageError(
+        command === 'mcp'
+          ? '--jql has no meaning for mcp; use the search_issues tool'
+          : `--jql has no meaning for ${name}`,
+      );
+    }
+    if (args.dryRun) throw new UsageError(`--dry-run has no meaning for ${name}`);
     return args;
   }
 

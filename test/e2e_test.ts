@@ -269,3 +269,49 @@ Deno.test('a filter naming an unknown field fails as a config error, before any 
     assertFalse(requests.some((r) => r.includes('DN-1243')));
   });
 });
+
+Deno.test('config-file prints the derived path and writes nothing', async () => {
+  const projectRoot = await Deno.makeTempDir();
+  const configDir = await Deno.makeTempDir();
+  const stdout: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => void stdout.push(args.join(' '));
+  try {
+    // Exit 0 with the file absent is the point: `$EDITOR "$(jira-fetch config-file)"` has to work
+    // the first time, before there is anything to edit.
+    assertEquals(await run(['config-file'], { projectRoot, configDir }), EXIT.ok);
+    assertEquals(stdout.length, 1);
+    assertEquals(stdout[0], configPathFor(projectRoot, configDir));
+    assertEquals(await Array.fromAsync(Deno.readDir(configDir)), []);
+  } finally {
+    console.log = originalLog;
+    await Promise.all(
+      [projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+    );
+  }
+});
+
+Deno.test('config-file needs no valid configuration, only a repository', async () => {
+  await withJira(async ({ projectRoot, runWith, stdout }) => {
+    // A run that would otherwise fail — the config it prints may be missing or broken — still
+    // answers the one question this subcommand exists for.
+    assertEquals(await runWith(['config-file']), EXIT.ok);
+    assert(stdout.some((line) => line.includes(projectRoot.split('/').pop() ?? '')));
+  });
+});
+
+Deno.test('config-file refuses arguments that name work it will not do', async () => {
+  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y' };
+  assertEquals(await run(['config-file', 'DN-1'], deps), EXIT.usageError);
+  assertEquals(await run(['config-file', '--jql', 'x'], deps), EXIT.usageError);
+  assertEquals(await run(['config-file', '--dry-run'], deps), EXIT.usageError);
+});
+
+Deno.test('outside a git repository the error says so rather than naming a missing file', async () => {
+  const outside = await Deno.makeTempDir();
+  try {
+    assertEquals(await run(['config-file'], { cwd: outside, configDir: outside }), EXIT.usageError);
+  } finally {
+    await Deno.remove(outside, { recursive: true });
+  }
+});

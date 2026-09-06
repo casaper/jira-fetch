@@ -8,6 +8,17 @@ import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 import { serveMcp } from './mcp/server.ts';
 
+/** Whether a path is there, without caring why not — a permission error is still "no file to
+ * print a note about", and the note is advisory. */
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await Deno.lstat(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const EXIT = {
   ok: 0,
   runtimeError: 1,
@@ -104,6 +115,17 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   try {
     const projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
     const filePath = configPathFor(projectRoot, deps.configDir ?? userConfigDir());
+
+    if (args.mode === 'configFile') {
+      // Printed whether or not the file is there, so `$EDITOR "$(jira-fetch config-file)"` works
+      // the first time as well as every time after. The note goes to stderr, keeping stdout a
+      // clean path for exactly that substitution.
+      console.log(filePath);
+      if (!await exists(filePath)) {
+        console.error('note: this file does not exist yet — run `jira-fetch setup` to create it');
+      }
+      return EXIT.ok;
+    }
 
     config = resolveConfig({
       flags: { out: args.out },
