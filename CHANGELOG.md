@@ -6,7 +6,32 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## 0.4.1 — 2026-09-05
+## 0.5.0 — 2026-09-06
+
+### Breaking changes
+
+- document the config directory ([f7833bc](https://github.com/casaper/jira-fetch/commit/f7833bc6ec1c602a4f86d1036a6c396693aadc7d))
+- drop the flags that could override the policy ([11ada29](https://github.com/casaper/jira-fetch/commit/11ada290a5075b348ca089261867e3b3cc326e8a))
+- read one config file per project from the user config dir ([9b0fd1c](https://github.com/casaper/jira-fetch/commit/9b0fd1cc36af13301a93c6c81631a4379d3f4f5b))
+
+### Features
+
+- **setup:** configure a project interactively ([811a127](https://github.com/casaper/jira-fetch/commit/811a1271b93527618dfb4471f429a39d84f2ea40))
+- **setup:** deny agents access to the config directory ([edf4ab7](https://github.com/casaper/jira-fetch/commit/edf4ab78810787e378b10cb54b9d9875aa2042ac))
+- **cli:** print the config file path ([b41f720](https://github.com/casaper/jira-fetch/commit/b41f7206b49075d05b23aee4ecca2561730f9565))
+- **cli:** drop the flags that could override the policy ([11ada29](https://github.com/casaper/jira-fetch/commit/11ada290a5075b348ca089261867e3b3cc326e8a))
+- **config:** read one config file per project from the user config dir ([9b0fd1c](https://github.com/casaper/jira-fetch/commit/9b0fd1cc36af13301a93c6c81631a4379d3f4f5b))
+- **config:** locate a project's config file without reading it ([f00e05c](https://github.com/casaper/jira-fetch/commit/f00e05ca1ecf430a1ad2da749c2272eb2712021a))
+
+### Bug Fixes
+
+- **setup:** refuse to write a deny rule against an unknown home ([b6c8615](https://github.com/casaper/jira-fetch/commit/b6c86157b9315af56dc67f1c32a224fe75195574))
+
+### Documentation
+
+- **config:** document the config directory ([f7833bc](https://github.com/casaper/jira-fetch/commit/f7833bc6ec1c602a4f86d1036a6c396693aadc7d))
+
+## 0.4.1 — 2026-09-06
 
 ### Documentation
 
