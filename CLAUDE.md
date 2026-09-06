@@ -216,8 +216,22 @@ first time, when everything still 404s.
 `assertCanPublish` checks `npm whoami` against it — again on the output, since being logged in as
 somebody else also exits 0.
 
-**Two-factor publishing: one code per package, from `JIRA_FETCH_NPM_OTP`.** Set it to a command
-that prints the current one-time code and `publishNpm` runs it before each publish:
+**Publishing authenticates with `NPM_TOKEN`, through the repository's `.npmrc`.** That file holds
+the reference `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` and never the value, so it is safe to
+commit; the token itself is a granular one scoped to these packages, kept in the gitignored
+`.env.local` and loaded by direnv (`.envrc`). `assertCanPublish` refuses when `NPM_TOKEN` is unset,
+because npm would otherwise send the literal string `${NPM_TOKEN}` and fail with an unauthorised
+error that says nothing about why. A granular token needs no one-time code, so this is the normal
+path and the one below is the fallback.
+
+**GitHub Packages is not an option for this, despite hosting an npm registry.** Its npm registry
+requires a GitHub token to _install_ from, even for public packages, and the scope must match the
+owner — so `npm i -g jira-fetch` would become "add a registry line to your .npmrc, mint a token,
+then install `@casaper/jira-fetch`". That is the opposite of the point. It suits private org-internal
+packages; a public CLI belongs on npmjs.org.
+
+**Without a token: one code per package, from `JIRA_FETCH_NPM_OTP`.** Set it to a command that
+prints the current one-time code and `publishNpm` runs it before each publish:
 
 ```sh
 export JIRA_FETCH_NPM_OTP='pass-cli item totp --output=json pass://pers/npmjs.com/totp | jq -r .totp'

@@ -227,6 +227,17 @@ export const assertCanPublish = async (): Promise<void> => {
   }
   if (!await succeeds('gh', 'auth', 'status')) fail('not logged in to GitHub: run `gh auth login`');
 
+  // The repository's .npmrc authenticates with ${NPM_TOKEN}, which direnv loads from .env.local.
+  // Unset, npm sends the literal string and fails with an unauthorised error that says nothing
+  // about the cause — so it is named here, before the tag exists.
+  if (!Deno.env.get('NPM_TOKEN')?.trim()) {
+    fail(
+      'NPM_TOKEN is not set, and .npmrc publishes with it.\n' +
+        '  It lives in .env.local, which direnv loads for this directory — check `direnv status`,\n' +
+        '  or export it for this command.',
+    );
+  }
+
   // Checked on output, not on exit status: being logged in as somebody else also exits 0, and the
   // platform packages can only be published by whoever owns the scope they are named after.
   const who = await output('npm', 'whoami');
