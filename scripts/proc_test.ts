@@ -36,13 +36,16 @@ const throughRun = async (stdin: string): Promise<string> => {
       args: ['run', '-A', script],
       stdin: 'piped',
       stdout: 'piped',
-      stderr: 'null',
+      // Kept rather than discarded: when this fails, "stdout was empty" is the symptom of every
+      // possible cause, and the child's own complaint is the only thing that separates them.
+      stderr: 'piped',
     }).spawn();
     const writer = child.stdin.getWriter();
     await writer.write(new TextEncoder().encode(stdin));
     await writer.close();
-    const { stdout } = await child.output();
-    return new TextDecoder().decode(stdout);
+    const { stdout, stderr } = await child.output();
+    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+    return `${decode(stdout)}${decode(stderr) && `\n--- stderr ---\n${decode(stderr)}`}`;
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

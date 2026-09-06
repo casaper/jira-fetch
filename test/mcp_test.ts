@@ -326,8 +326,12 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
     // pass and no JIRA_* variable to set, so without these the subprocess would resolve this
     // repository's own configuration, real token included.
     // APPDATA as well as HOME: it is what locates the directory on Windows, and pinning only
-    // HOME there would send the server to the real one.
-    env: { HOME: home, APPDATA: home },
+    // HOME there would send the server to the real one. SYSTEMROOT is not about configuration at
+    // all — Winsock cannot initialise without it, so on Windows a cleared environment makes every
+    // fetch fail before it reaches a socket. None of the three is a way to reach a config file.
+    env: Deno.build.os === 'windows'
+      ? { HOME: home, APPDATA: home, SYSTEMROOT: Deno.env.get('SYSTEMROOT') ?? '' }
+      : { HOME: home },
     clearEnv: true,
     cwd: outDir,
     stdin: 'piped',
