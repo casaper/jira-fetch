@@ -103,22 +103,22 @@ under `%APPDATA%` already inherits an ACL granting only you, `SYSTEM` and `Admin
 ### There is nothing else
 
 No `JIRA_BASE_URL`, no `JIRA_EMAIL`, no `JIRA_API_TOKEN`, no `.env`, no `.env.local`, no config file
-inside the project, and no `--config`, `--token`, `--base-url` or `--email` flag. Not deprecated —
-absent. Configuration does not layer, and there is no search order, because there is no search: the
-path is computed from the repository root and that is the only place the tool looks.
+inside the project, and no `--config`, `--token`, `--base-url` or `--email` flag. Configuration
+does not layer, and there is no search order, because there is no search: the path is computed from
+the repository root and that is the only place the tool looks.
 
 That is a deliberate trade against convenience, and the reason is [the MCP server](#mcp-server).
 The tool's central claim is that an agent's access to Jira is decided by a file it does not
-control, and every one of those inputs was a way around it — a `.jira-fetch.yml` created in the
-working directory shadowed the real one, a flag named a different file outright, and an exported
-`JIRA_API_TOKEN` was a credential the agent's own shell could send to Jira with `curl` without
-going near this tool.
+control, and each of those inputs would be a way around it: a `.jira-fetch.yml` created in the
+working directory would shadow the real one, a flag would name a different file outright, and an
+exported `JIRA_API_TOKEN` is a credential the agent's own shell can send to Jira with `curl`
+without going near this tool.
 
 ### If two projects share a filename
 
-Path segments become `_`, and everything inside a segment is lower-cased with runs of punctuation
-folded to `-`, so `/Users/you/code/My Thing` becomes `users_you_code_my-thing.yml`. That mapping is
-not reversible: `/a/b_c` and `/a_b/c` produce the same name. This is why the file carries a
+Path segments become `_`, and runs of punctuation inside a segment fold to `-`; letters keep their
+case, so `/Users/you/code/My Thing` becomes `Users_you_code_My-Thing.yml`. That mapping is not
+reversible: `/a/b_c` and `/a_b/c` produce the same name. This is why the file carries a
 `project` key — the tool compares it against the repository it is actually in and stops with exit 2
 rather than quietly applying another project's filters. Run `jira-fetch setup` in the second
 project to write its own file, or rename one of the directories.
@@ -180,9 +180,9 @@ JSON works just as well — every name above has a `.json` spelling, and there t
   `"customfield_10101"` is used directly.
 - **A field name that does not resolve stops the run** with exit code 2, before any issue is
   fetched. So does one that resolves to _two_ fields — Jira lets two custom fields share a name,
-  and the error names both ids so you can pick one. Both used to be warnings, which is a bad way
-  to be wrong: a `Teem` in an `exclude` rule is a deny rule that silently denies nothing, and in
-  an `include` rule it silently denies everything.
+  and the error names both ids so you can pick one. A warning would be a bad way to be wrong: a
+  `Teem` in an `exclude` rule is a deny rule that silently denies nothing, and in an `include` rule
+  it silently denies everything.
 - `tags` is an alias for `labels`.
 - **Comment filters drop comments, never the ticket** — and they are exclude-only on purpose: an
   include list would mean "drop every comment not explicitly allowed", which is the wrong default
@@ -273,8 +273,8 @@ the repository it is started in — and neither a file appearing in your project
 variable can change which one that is.
 
 `--scope user` puts the server definition in `~/.claude.json` rather than a `.mcp.json` in the
-project, so the command the server is launched with is not itself a file the agent edits. That is
-worth keeping even though the policy no longer depends on it.
+project, so the command the server is launched with is not itself a file the agent edits. Worth
+doing, though the guarantee above does not depend on it.
 
 **Check it once.** `-v` prints the config file the server resolved, on stderr, where Claude Code
 shows it as MCP server output. If it is not the file you meant, nothing else on this page is true
@@ -282,14 +282,12 @@ of your setup.
 
 ### What the agent cannot do
 
-An agent that edits files in your project and runs commands in it used to have two easy ways past a
-server configured from that same project. Neither is available now, and neither closure depends on
-you remembering a flag.
+An agent that edits files in your project and runs commands in it has no easy way past a server
+configured from that same project, and neither closure depends on you remembering a flag.
 
 - **It cannot rewrite the policy**, because the policy is not in the project. It is not even in a
   file the tool will search for: the path is computed from the repository root, so creating a
-  `.jira-fetch.yml` in the working directory — once enough to shadow a committed config, since the
-  nearest file won outright — now does nothing at all.
+  `.jira-fetch.yml` in the working directory does nothing at all.
 - **It cannot skip the server with the token**, because the token is not in the environment its
   shell inherits, nor in a `.env.local` in the tree. It is in the config file and nowhere else, and
   there is no `--token` flag to put it in a process table either.
@@ -349,10 +347,10 @@ script that opens the file itself, and an agent with a shell can edit the settin
 terminal check on `setup` is the same kind of thing: a barrier, not a boundary, since anything that
 can allocate a pty gets past it.
 
-What the design actually buys is that the policy and the credential are no longer things the agent
+What the design actually buys is that the policy and the credential are not things the agent
 encounters in the course of its work. Reaching either means deliberately stepping outside the
-workspace — unusual, and visible when it happens — rather than editing a file that was sitting in
-the repository anyway. The only **hard** boundary is on Atlassian's side: an API token belonging to
+workspace — unusual, and visible when it happens — rather than opening a file that sits in the
+repository anyway. The only **hard** boundary is on Atlassian's side: an API token belonging to
 an account that cannot see what you do not want read. This tool makes the soft boundary a great
 deal harder to cross by accident or by improvisation; it does not replace the hard one.
 
