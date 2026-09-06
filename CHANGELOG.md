@@ -6,6 +6,22 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.5.1 — 2026-09-06
+
+### Features
+
+- **release:** publish jira-fetch to npm ([f4977cb](https://github.com/casaper/jira-fetch/commit/f4977cb2c82305fbce054292cc1f5906353b63a5))
+- **scripts:** package the compiled binaries for npm ([fba43ae](https://github.com/casaper/jira-fetch/commit/fba43ae47791a8a021f4619ee245af056fa7a1aa))
+
+### Documentation
+
+- install with npm ([2196b0b](https://github.com/casaper/jira-fetch/commit/2196b0bc743c183b42d64e860cddc6d828010bdb))
+
+### Chores
+
+- load dotenv files with direnv ([436ecf8](https://github.com/casaper/jira-fetch/commit/436ecf87d12eec0c1c438e1cb1c6b2fa1acd0848))
+- ignore the plan file ([1d58371](https://github.com/casaper/jira-fetch/commit/1d58371b70cc2868773f31ffd13b8e758a569012))
+
 ## 0.5.0 — 2026-09-06
 
 ### Breaking changes
