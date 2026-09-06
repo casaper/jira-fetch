@@ -173,9 +173,13 @@ export const publish = async (version: string): Promise<void> => {
   if (await git('rev-parse', tag + '^{}') !== await git('rev-parse', 'HEAD')) {
     fail(`${tag} does not point at HEAD; check out the release commit first`);
   }
-  if (await succeeds('gh', 'release', 'view', tag)) {
-    fail(`a release for ${tag} already exists; delete it first, or bump the version`);
-  }
+  // An existing release for this tag is a **resume**, not a mistake. The check above has already
+  // established that the tag points at HEAD, so the only way to get here is to have published
+  // this exact commit and then had a later step fail — which is what this script promises can be
+  // fixed by running it again. It used to refuse instead, and that made the promise false the
+  // first time it mattered: the npm publish sits after the release, so an npm failure left no way
+  // forward but editing the script.
+  const releaseExists = await succeeds('gh', 'release', 'view', tag);
   const notes = `${await changelogSection(version)}\n\n${installSection()}\n`;
 
   const branch = await git('rev-parse', '--abbrev-ref', 'HEAD');
@@ -189,27 +193,31 @@ export const publish = async (version: string): Promise<void> => {
   const checksums = await writeChecksums();
   console.log(`wrote ${checksums}`);
 
-  const notesFile = await Deno.makeTempFile({ suffix: '.md' });
-  await Deno.writeTextFile(notesFile, notes);
-  try {
-    console.log(`\ncreating the ${tag} release...`);
-    await run(
-      'gh',
-      'release',
-      'create',
-      tag,
-      ...TARGETS.map((t) => `dist/${t.name}`),
-      checksums,
-      '--title',
-      tag,
-      '--notes-file',
-      notesFile,
-      // Refuses if the tag is somehow not on the remote, rather than quietly creating one.
-      '--verify-tag',
-      '--latest',
-    );
-  } finally {
-    await Deno.remove(notesFile);
+  if (releaseExists) {
+    console.log(`\nthe ${tag} release already exists; leaving it as it is`);
+  } else {
+    const notesFile = await Deno.makeTempFile({ suffix: '.md' });
+    await Deno.writeTextFile(notesFile, notes);
+    try {
+      console.log(`\ncreating the ${tag} release...`);
+      await run(
+        'gh',
+        'release',
+        'create',
+        tag,
+        ...TARGETS.map((t) => `dist/${t.name}`),
+        checksums,
+        '--title',
+        tag,
+        '--notes-file',
+        notesFile,
+        // Refuses if the tag is somehow not on the remote, rather than quietly creating one.
+        '--verify-tag',
+        '--latest',
+      );
+    } finally {
+      await Deno.remove(notesFile);
+    }
   }
 
   // Last, and deliberately: everything above can be re-run, and this cannot be undone.
