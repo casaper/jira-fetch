@@ -4,4 +4,4 @@ tmp/
 # Secrets. jira-fetch itself no longer reads these — its own config lives outside the repository,
 # in ~/.config/jira-fetch/ — but this repo still keeps real credentials here for scripts.
 .env*.local
-.claude/plans/in-this-project-i-gleaming-iverson.md
+.claude/plans/

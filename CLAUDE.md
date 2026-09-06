@@ -77,8 +77,58 @@ the evidence; hardcoding the expected keys would only prove the site had not cha
 cleanly (exit 0) without credentials. Keep request-economy assertions — "this was never fetched" —
 in the sealed suite instead: only `test/fake_jira.ts` records what went on the wire.
 
-No CI: `deno task check` and the suite run locally. Release binaries are cross-compiled and
-attached to a GitHub release by `deno task publish`, from a developer's machine — see Releases.
+**CI is `.github/workflows/ci.yml`**, on every push to `main` and every pull request. A `check`
+job on ubuntu runs `deno task check`, then `deno check test/` as its **own step** — folding them
+into one would let a broken test type pass a green badge, since `check` covers `src/` and
+`scripts/` only — then `deno task commitlint --from ${{ github.event.pull_request.base.sha }}`,
+which is pull-request-only because that field does not exist on a push and needs `fetch-depth: 0`
+because checkout is shallow by default. A `test` job runs the whole suite on ubuntu, macOS and
+Windows with `fail-fast: false`.
+
+**`deno task verify:filters` is deliberately not in CI and must not be added.** It exits 0 with a
+message when no credentials are configured, so it would pass every run having verified nothing —
+the same shape of trap as the `npm view` exit-status probe under Releases.
+
+`.gitattributes` pins `* text=auto eol=lf`, because the Windows runner checks out with
+`core.autocrlf=true` and the suite compares file content textually. Note also that `deno fmt`
+honours `.gitignore`: `.claude/plans/` is ignored, which is the only reason a plan file in the tree
+does not turn `deno task check` red.
+
+**Windows found things, and it took four rounds to clear them.** Exactly one was a product bug:
+`userConfigDir(env, os)` joined with the **host's** separator rather than the one it was asked
+about, so `userConfigDir(env, 'linux')` answered `\home\kim\...` on a Windows machine. Purity in
+`src/config/location.ts` is load-bearing now, not incidental — the same invariant `projectSlug`
+already states. The rest were the suite assuming a platform, and five are worth not rediscovering:
+
+- **`.pathname` is not a path.** For `file:///D:/x` it is `/D:/x`, which nothing accepts. Three
+  places did it; `fromFileUrl` is the answer. `mcp_test.ts` spawned `src/main.ts` that way, so deno
+  resolved from the wrong place, never found `deno.json`, and died on the first import.
+- **A path is not a module specifier either.** `import { x } from "D:\a\..."` reads `D:` as a
+  scheme. A POSIX path worked only by accident, resolving against the importer's own `file:` base.
+  `import.meta.resolve` gives the URL an import wants; `fromFileUrl` of it gives the path a
+  subprocess argument wants. `scripts/proc_test.ts` needs both, for the same file.
+- **`clearEnv: true` breaks networking on Windows** unless `SYSTEMROOT` is passed through — Winsock
+  cannot initialise without it and every fetch fails before reaching a socket. `test/mcp_test.ts`
+  pins `HOME`, `APPDATA` and `SYSTEMROOT`; none of the three is a way to reach a config file, so
+  the seal is intact.
+- **A `deno eval` program does not survive Windows argument handling** — the vector is rebuilt into
+  one command line and the quotes inside it are lost, silently. Write a script file instead.
+- **Never let a test discard a child's stderr.** `proc_test.ts` did, so three separate causes all
+  presented as "stdout was empty". Keeping it named the last one on the first run.
+
+Release binaries are still cross-compiled and attached to a GitHub release by `deno task publish`,
+from a developer's machine — see Releases. CI does not build or publish anything.
+
+**The repository's description and topics live on github.com, not in this tree**, so nothing in a
+checkout reveals them. Read with `gh repo view --json description,homepageUrl,repositoryTopics` and
+change with `gh repo edit --description … --homepage … --add-topic …`. The homepage points at the
+npm package. They are the discoverability surface the npm `keywords` are for on the other side.
+
+**`README.md` is also the npm package page** — `stage()` copies it into the main package — so every
+link in it must be **absolute**, or it resolves against npmjs.com and 404s. It is user-facing
+documentation only; everything about developing, testing, committing and releasing lives in
+`CONTRIBUTING.md`, which never ships. A README change reaches npmjs.com only at the next publish,
+because the file is baked into the tarball.
 
 ## Code style
 
@@ -246,11 +296,13 @@ Four things are being checked, and each would be invisible from the host:
 Deleting `"$(npm root -g)"/jira-fetch/node_modules/@casaper` before running exercises the shim's
 other branch: it must name the platform and exit 1, not fail with a resolver stack trace. Note that
 `--omit=optional` does **not** reproduce that — npm installs the optional platform package anyway on
-a global install, which the shim's own error message currently claims otherwise.
+a global install. The shim's message used to name that flag as the cause and no longer does, because
+it sent anyone who hit it after a thing npm had not done.
 
-**Windows is still unrun.** The artefacts are checkable from anywhere — `file` reports the PE
-architecture and the tarball bytes can be compared against `SHA256SUMS` — but npm's generated
-`.cmd` wrapper and `spawnSync` of the `.exe` have never been executed.
+**The Windows _binary_ is still unrun.** The suite now runs on Windows in CI, but from source under
+Deno — that is a different artefact. The compiled `.exe` and npm's generated `.cmd` wrapper have
+still never been executed; the artefacts are only checkable statically, `file` reporting the PE
+architecture and the tarball bytes comparing against `SHA256SUMS`.
 
 **`publishNpm` runs last in `scripts/publish.ts`, deliberately.** Everything before it can be
 re-run; a published npm version cannot be unpublished after 72 hours and can never be republished,

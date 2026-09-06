@@ -1,6 +1,11 @@
 # jira-fetch
 
-Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments and all.
+[![CI](https://github.com/casaper/jira-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/casaper/jira-fetch/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/jira-fetch)](https://www.npmjs.com/package/jira-fetch)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/casaper/jira-fetch/blob/main/LICENSE)
+
+Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments and all — from the
+terminal, or over MCP so an AI agent reads Jira through a config file it does not control.
 
 > **This project was written entirely by AI.** Every line of code, test and document in this
 > repository was produced by Claude in a series of prompted sessions — it is fully vibe-coded.
@@ -32,23 +37,31 @@ an attachment nobody embedded, not a broken link.
 npm install -g jira-fetch
 ```
 
-npm fetches one prebuilt binary for your platform — nothing is compiled, and nothing needs Node or
-Deno once it is there. `npm update -g jira-fetch` upgrades it, and `npx jira-fetch DN-1243` runs it
-without installing anything at all.
+That is the whole of it. npm downloads one prebuilt binary for your platform — nothing is compiled,
+and nothing needs Node or Deno once it is there; npm is only how it is delivered. macOS, Linux and
+Windows, on x64 and arm64.
 
-Or take the binary straight from the [release artifacts](https://github.com/casaper/jira-fetch/releases), which is the same file by another
-route. On macOS they are neither signed nor notarised, so Gatekeeper quarantines them on download:
+```sh
+npm update -g jira-fetch    # upgrade
+npx jira-fetch DN-1243      # run it once, installing nothing
+```
+
+<details>
+<summary>Without npm</summary>
+
+Every release also attaches the six binaries directly, and they are the same files npm serves:
+<https://github.com/casaper/jira-fetch/releases>. Download the one for your platform, make it
+executable and put it on your `PATH`. On macOS they are neither signed nor notarised, so Gatekeeper
+quarantines anything downloaded and you have to say so explicitly:
 
 ```sh
 chmod +x jira-fetch-macos-aarch64
 xattr -d com.apple.quarantine jira-fetch-macos-aarch64
 ```
 
-Or run from source:
+Nothing else about the tool changes; `npm update` is simply not available to you.
 
-```sh
-deno task dev DN-1243
-```
+</details>
 
 ## Configuration
 
@@ -130,7 +143,7 @@ because every issue was excluded by a filter.
 ## Filters
 
 Filters decide which tickets are fetched at all, and which comments make it into the document.
-`jira-fetch setup` walks through them; [`docs/config-example.yml`](docs/config-example.yml) shows
+`jira-fetch setup` walks through them; [`docs/config-example.yml`](https://github.com/casaper/jira-fetch/blob/main/docs/config-example.yml) shows
 every option in one file.
 
 ```yaml
@@ -350,49 +363,19 @@ already written. Since the MCP server and the CLI share one `filters` block, the
 something the server would deny under the same config; the gap is only ever a config that has since
 been tightened. If that matters to you, point `--out` at a directory you can clear.
 
-## Development
+## Contributing
 
-```sh
-deno task check      # typecheck + lint + fmt --check + JSON Schema freshness
-deno task lint
-deno task fmt
-deno task test       # or: deno test -A
-deno test -A --filter "excludes anonymous reporter"
-deno task verify:filters  # filter scenarios against the real Jira site (needs credentials)
-deno task schema     # regenerate schema/jira-fetch.schema.json
-deno task types      # regenerate src/jira/schema_types.ts from the vendored specs
-deno task mcp        # run the MCP server from source
-deno task build      # host binary into dist/
-deno task build:all  # all six release targets
+Issues and pull requests are welcome. Everything about working on this — the tasks, the code style,
+the commit convention, how the test suite is sealed and how a release is cut — is in
+[CONTRIBUTING.md](https://github.com/casaper/jira-fetch/blob/main/CONTRIBUTING.md).
 
-deno task hooks      # once per clone: enable the Conventional Commits hook
-deno task changelog  # regenerate CHANGELOG.md from the commit history
-deno task release patch   # bump, changelog, commit, tag, push, build, publish
-deno task publish         # just the publish half, if a cross-compile failed
-```
-
-The Jira and ADF types in `src/jira/schema_types.ts` are generated from Atlassian's own published
-schemas, vendored and pinned under `spec/` (both Apache-2.0 — see [spec/NOTICE](spec/NOTICE)).
-`deno task check` fails if that file has drifted from them. Only `deno task vendor:spec` touches
-the network, and it is run by hand.
-
-Commit subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and
-are checked by `.githooks/commit-msg`; `deno task hooks` is what turns that on in a fresh clone.
-[CHANGELOG.md](CHANGELOG.md) is generated from those subjects.
-
-The test suite needs no credentials and no network: `test/e2e_test.ts` runs the whole CLI against a
-fake Jira on localhost (`test/fake_jira.ts`), and `test/mcp_test.ts` drives the MCP server against
-the same one.
-
-`deno task verify:filters` is the complement, and is deliberately outside that suite: it runs a
-table of allow/deny/both scenarios against your **real** Jira site, computes what each one should
-keep from the tickets' actual fields, and compares. It skips with a message when no credentials are
-configured. Documents land in `tmp/filters/` and are left there, so the run doubles as a way to see
-what the tool produces for real tickets.
+The suite that runs on every push needs **no credentials and no network**: it drives the whole CLI,
+and the MCP server, against a fake Jira on localhost. It runs on Linux, macOS and Windows, and the
+badge at the top of this page is that run.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](https://github.com/casaper/jira-fetch/blob/main/LICENSE).
 
 Nothing in the dependency tree stands in the way: Deno, the Deno standard library (`@std/*`) and
 zod are all MIT. The **compiled binaries** are a slightly different matter — `deno compile` embeds
@@ -402,7 +385,7 @@ permissive, none copyleft; the obligation is attribution, not disclosure.
 
 `src/jira/schema_types.ts` is generated from Atlassian's published Jira and ADF schemas, which are
 **Apache-2.0** and vendored under `spec/`. That file is compiled into the binaries, so the release
-carries Atlassian's attribution as well — kept in [spec/NOTICE](spec/NOTICE) and in the generated
+carries Atlassian's attribution as well — kept in [spec/NOTICE](https://github.com/casaper/jira-fetch/blob/main/spec/NOTICE) and in the generated
 file's own header. Apache-2.0 is permissive and imposes no copyleft on the rest of this project.
 
 One honest footnote to the copyright line, given the disclaimer above: purely AI-generated work may

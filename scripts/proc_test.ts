@@ -2,35 +2,53 @@
  * child's streams is part of the release working at all. */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { fromFileUrl } from '@std/path';
+import { join } from '@std/path';
 import { output, succeeds } from './proc.ts';
 
-const PROC = fromFileUrl(import.meta.resolve('./proc.ts'));
+/** A `file://` URL, not a path: the generated driver below *imports* this, and an absolute Windows
+ * path is not a module specifier — `D:\a\...` parses as the scheme "d". A POSIX path happened to
+ * work only because it resolves against the driver's own file: base. */
+const PROC = import.meta.resolve('./proc.ts');
+
+/** The child `run` is pointed at: it echoes back whatever it was handed on stdin. Deliberately a
+ * script file rather than `sh -c` (which does not exist on Windows) or `deno eval` (whose program
+ * would travel as one argument, and Windows rebuilds an argument vector into a command line, so
+ * the quotes in it do not survive). The subject here is the stream, not the program at the other
+ * end of it. */
+const ECHO_STDIN = [
+  'const buffer = new Uint8Array(4096);',
+  'const read = await Deno.stdin.read(buffer);',
+  'console.log("got:[" + new TextDecoder().decode(buffer.subarray(0, read ?? 0)) + "]");',
+].join('\n');
 
 /** Runs a one-line program that uses `run`, in a subprocess whose stdin we control. Nothing else
  * can answer "does the child of `run` see our stdin?" — the test process's own stdin is whatever
  * `deno test` was given. */
-const throughRun = async (command: string, stdin: string): Promise<string> => {
+const throughRun = async (stdin: string): Promise<string> => {
   const dir = await Deno.makeTempDir();
   try {
-    const script = `${dir}/driver.ts`;
+    const echo = join(dir, 'echo.ts');
+    await Deno.writeTextFile(echo, ECHO_STDIN);
+    const script = join(dir, 'driver.ts');
     await Deno.writeTextFile(
       script,
-      `import { run } from ${JSON.stringify(PROC)};\nawait run('sh', '-c', ${
-        JSON.stringify(command)
-      });\n`,
+      `import { run } from ${JSON.stringify(PROC)};\n` +
+        `await run(${JSON.stringify(Deno.execPath())}, 'run', ${JSON.stringify(echo)});\n`,
     );
     const child = new Deno.Command(Deno.execPath(), {
       args: ['run', '-A', script],
       stdin: 'piped',
       stdout: 'piped',
-      stderr: 'null',
+      // Kept rather than discarded: when this fails, "stdout was empty" is the symptom of every
+      // possible cause, and the child's own complaint is the only thing that separates them.
+      stderr: 'piped',
     }).spawn();
     const writer = child.stdin.getWriter();
     await writer.write(new TextEncoder().encode(stdin));
     await writer.close();
-    const { stdout } = await child.output();
-    return new TextDecoder().decode(stdout);
+    const { stdout, stderr } = await child.output();
+    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+    return `${decode(stdout)}${decode(stderr) && `\n--- stderr ---\n${decode(stderr)}`}`;
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -41,10 +59,7 @@ Deno.test('run passes its own stdin to the child', async () => {
   // which turns every prompt into an instant failure: `npm publish` under two-factor auth could
   // not ask for confirmation and died with EOTP — after the GitHub release had been created, so
   // the release was half-done and the documented "just run it again" recovery was unavailable.
-  assertStringIncludes(
-    await throughRun('echo "got:[$(cat)]"', 'a-secret-code'),
-    'got:[a-secret-code]',
-  );
+  assertStringIncludes(await throughRun('a-secret-code'), 'got:[a-secret-code]');
 });
 
 Deno.test('succeeds reports a failure as an answer rather than throwing', async () => {

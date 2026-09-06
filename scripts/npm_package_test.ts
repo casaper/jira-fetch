@@ -50,6 +50,17 @@ Deno.test('the installed package pins every platform at the exact version', () =
   assertEquals(manifest.bin, { 'jira-fetch': 'bin/jira-fetch.mjs' });
 });
 
+Deno.test('the installed package says what it is where npm searches', () => {
+  const manifest = mainManifest('1.2.3');
+
+  // The MCP server is the reason most people want this, and npm's search index reads only the
+  // description and the keywords. Losing either term makes the package unfindable by the thing it
+  // is actually for, which is invisible from inside the repository.
+  assert(manifest.keywords.includes('mcp-server'));
+  assert(manifest.keywords.includes('jira'));
+  assertStringIncludes(manifest.description, 'MCP server');
+});
+
 Deno.test('the shim never writes to stdout', () => {
   // In `jira-fetch mcp` stdout is the JSON-RPC stream. One stray line from the wrapper corrupts
   // the session far from its cause, so the wrapper has no business writing there at all.

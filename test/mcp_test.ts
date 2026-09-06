@@ -9,9 +9,9 @@
  */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { dirname, join } from '@std/path';
+import { dirname, fromFileUrl, join } from '@std/path';
 import { stringify as stringifyYaml } from '@std/yaml';
-import { configPathFor } from '../src/config/location.ts';
+import { configPathFor, userConfigDir } from '../src/config/location.ts';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import type { JSONRPCMessage } from '@modelcontextprotocol/server';
 import { createMcpServer } from '../src/mcp/server.ts';
@@ -260,7 +260,11 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
   await Deno.mkdir(join(outDir, '.git'));
   // realPath because `findProjectRoot` canonicalises, and on macOS the temp dir is a symlink.
   const projectRoot = await Deno.realPath(outDir);
-  const configPath = configPathFor(projectRoot, join(home, '.config', 'jira-fetch'));
+  // Derived with the same function the server will use, rather than restated as
+  // `<home>/.config/jira-fetch`: Windows puts it under %APPDATA% instead, and a test that
+  // hardcodes the unix layout writes the config somewhere the server never looks.
+  const fakeEnv = (name: string) => (name === 'HOME' || name === 'APPDATA' ? home : undefined);
+  const configPath = configPathFor(projectRoot, userConfigDir(fakeEnv));
   await Deno.mkdir(dirname(configPath), { recursive: true });
   await Deno.writeTextFile(
     configPath,
@@ -310,7 +314,9 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
       '--allow-env=HOME,APPDATA,USERPROFILE',
       '--allow-read',
       '--allow-write',
-      new URL('../src/main.ts', import.meta.url).pathname,
+      // fromFileUrl, not .pathname: on Windows that is "/D:/...", which deno resolves from the
+      // wrong place and then cannot find deno.json, so every import fails.
+      fromFileUrl(import.meta.resolve('../src/main.ts')),
       'mcp',
       '--out',
       outDir,
@@ -319,7 +325,13 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
     // A pinned HOME and a cwd inside the fake project are the whole seal: there is no --config to
     // pass and no JIRA_* variable to set, so without these the subprocess would resolve this
     // repository's own configuration, real token included.
-    env: { HOME: home },
+    // APPDATA as well as HOME: it is what locates the directory on Windows, and pinning only
+    // HOME there would send the server to the real one. SYSTEMROOT is not about configuration at
+    // all — Winsock cannot initialise without it, so on Windows a cleared environment makes every
+    // fetch fail before it reaches a socket. None of the three is a way to reach a config file.
+    env: Deno.build.os === 'windows'
+      ? { HOME: home, APPDATA: home, SYSTEMROOT: Deno.env.get('SYSTEMROOT') ?? '' }
+      : { HOME: home },
     clearEnv: true,
     cwd: outDir,
     stdin: 'piped',

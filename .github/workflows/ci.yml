@@ -1,0 +1,57 @@
+# The whole suite runs here because it is sealed: no credentials, no network, no developer machine.
+# `test/e2e_test.ts` drives the CLI against a fake Jira on localhost and `test/mcp_test.ts` does the
+# same for the MCP server, so what a green badge attests to is the real thing rather than a subset.
+#
+# `deno task verify:filters` is deliberately NOT here. It exits 0 with a message when no credentials
+# are configured, so in CI it would pass every time having verified nothing — a green light for an
+# empty check. It stays a thing a developer runs against their own Jira site.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # commitlint walks back to the base commit, and checkout is shallow by default.
+          fetch-depth: 0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # typecheck + lint + fmt --check + the two generated-file freshness checks
+      - run: deno task check
+
+      # `check` covers src/ and scripts/ only, so the tests need their own typecheck or a broken
+      # test type would only surface when someone ran the suite.
+      - run: deno check test/
+
+      # `github.event.pull_request` does not exist on a push, so this is PR-only.
+      - name: commit messages
+        if: github.event_name == 'pull_request'
+        run: deno task commitlint --from ${{ github.event.pull_request.base.sha }}
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      # A red Windows must not cancel ubuntu and macOS — the point of the matrix is to see which
+      # platforms pass, not to stop at the first that does not.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno task test
