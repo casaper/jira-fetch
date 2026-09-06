@@ -52,7 +52,7 @@ config file for a temp project root, so nothing resolves the developer's own con
 That is load-bearing rather than tidy, and the hazard moved rather than went away. It used to be
 `.env` files found by walking upward past a real `JIRA_API_TOKEN`. It is now the derived path: an
 unsealed run works out which git repository it is in and reads
-`$HOME/.config/jira-fetch/users_<you>_code_jira-fetch.yml`, which is this repository's real
+`$HOME/.config/jira-fetch/Users_<you>_code_jira-fetch.yml`, which is this repository's real
 configuration, token included. Nothing asserts the token, so a leak would not turn the suite red;
 it would just quietly stop being hermetic. **Any new entry point that calls `run` from a test must
 pass both.**
@@ -383,8 +383,8 @@ for anything.
 
 ```
 findProjectRoot(cwd)  ->  nearest ancestor with a .git entry, canonicalised
-projectSlug(root)     ->  users_you_code_thing
-configPathFor(...)    ->  $HOME/.config/jira-fetch/users_you_code_thing.yml
+projectSlug(root)     ->  Users_you_code_thing
+configPathFor(...)    ->  $HOME/.config/jira-fetch/Users_you_code_thing.yml
                           %APPDATA%\jira-fetch\... on Windows
 ```
 
@@ -417,6 +417,15 @@ project's filters is the failure the whole layout exists to prevent, and the sam
 here as for `makeFieldResolver` below. The slug is a pure string transform that deliberately does
 not resolve its argument, so a Windows path slugs identically on every host and the rules are
 testable without a Windows runner.
+
+**The slug keeps the case of the path**, and the Windows drive letter is the single exception,
+normalised to upper case. That asymmetry is deliberate and reads as a bug otherwise: case is
+information in a path — `/home/you/Thing` and `/home/you/thing` are two repositories on a
+case-sensitive filesystem and must get two files — but drive letters are case-insensitive, so
+folding `c:` and `C:` together is what stops one project getting two. Note the two lines move
+together: dropping `toLowerCase()` without widening the character class to `[^A-Za-z0-9_]` folds
+every capital to a hyphen, so `My Thing` becomes `y-hing`. There is no fallback to the old
+lower-cased filename and there must not be one — that would be a second place the tool looks.
 
 `PERMISSIONS` is now `--allow-net --allow-env=HOME,APPDATA,USERPROFILE --allow-read --allow-write`.
 Those three variables locate the config directory and are the only environment reads left. The

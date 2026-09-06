@@ -12,7 +12,7 @@ import { configPathFor, findProjectRoot, projectSlug, userConfigDir } from './lo
 Deno.test('the worked example from the specification', () => {
   assertEquals(
     projectSlug('/Users/username/coding_projects/jira_fetch Project Root'),
-    'users_username_coding_projects_jira_fetch-project-root',
+    'Users_username_coding_projects_jira_fetch-Project-Root',
   );
 });
 
@@ -36,11 +36,25 @@ Deno.test('repeated separators collapse rather than producing empty segments', (
 });
 
 Deno.test('a Windows drive letter is a segment, not a segment with a colon', () => {
-  assertEquals(projectSlug('C:\\Users\\kim\\code\\thing'), 'c_users_kim_code_thing');
+  assertEquals(projectSlug('C:\\Users\\kim\\code\\thing'), 'C_Users_kim_code_thing');
 });
 
 Deno.test('a segment that folds away entirely is dropped, not left empty', () => {
   assertEquals(projectSlug('/a/!!!/b'), 'a_b');
+});
+
+Deno.test('case is kept, so two roots differing only in case are two files', () => {
+  // On a case-sensitive filesystem these are two repositories. Folding them together would mean
+  // whichever one was configured second could not have a configuration file at all.
+  assertEquals(projectSlug('/home/you/Thing'), 'home_you_Thing');
+  assert(projectSlug('/home/you/Thing') !== projectSlug('/home/you/thing'));
+});
+
+Deno.test('the drive letter is the one segment whose case is normalised', () => {
+  // Windows drive letters are case-insensitive, so `c:` and `C:` are one drive and must not become
+  // two config files. Nothing else in a path is case-insensitive on any host this ships to.
+  assertEquals(projectSlug('c:\\a'), projectSlug('C:\\a'));
+  assertEquals(projectSlug('c:\\a'), 'C_a');
 });
 
 Deno.test('the slug is not injective, which is why the file carries a project key', () => {

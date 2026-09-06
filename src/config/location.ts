@@ -118,29 +118,36 @@ const shortHash = (text: string): string => {
 /**
  * The config filename stem for a project root.
  *
- * `/` (and Windows `\`) become `_`, with the leading one dropped; everything within a path segment
- * is lower-cased and folded to `-`, except `_`, which survives. So
+ * `/` (and Windows `\`) become `_`, with the leading one dropped; within a path segment, runs of
+ * anything that is not a letter, a digit or `_` fold to `-`. So
  * `/Users/username/coding_projects/jira_fetch Project Root` becomes
- * `users_username_coding_projects_jira_fetch-project-root`.
+ * `Users_username_coding_projects_jira_fetch-Project-Root`.
+ *
+ * **Letters keep their case**, because case is information in a path: on a case-sensitive
+ * filesystem `/home/you/Thing` and `/home/you/thing` are two repositories, and folding them
+ * together would mean the second one simply cannot have a configuration file. The one exception is
+ * the Windows drive letter, normalised to upper case — `c:\a` and `C:\a` are the same drive, so
+ * they must stay the same file.
  *
  * **This is not injective**, and cannot be made so while staying readable: `/a/b_c` and `/a_b/c`
- * both land on `a_b_c`. The `project` key in the file is what catches that — see
- * `assertProjectMatches` in `config.ts`.
+ * both land on `a_b_c`. Nor does keeping case help when a case-sensitive volume is mounted under a
+ * case-insensitive configuration directory. The `project` key in the file is what catches both —
+ * see `assertProjectMatches` in `config.ts`.
  *
  * A pure string transform: it does **not** resolve its argument, so a Windows path slugs the same
  * way on every host. `findProjectRoot` already returns an absolute path, and that is the contract.
  */
 export const projectSlug = (projectRoot: string): string => {
   const slug = projectRoot
-    // A Windows drive is a path segment, not a segment with a colon in it: `C:\a` -> `c_a`.
-    .replace(/^([A-Za-z]):[\\/]/, '$1/')
+    // A Windows drive is a path segment, not a segment with a colon in it: `C:\a` -> `C_a`. Upper
+    // cased because drive letters are case-insensitive, and it is the only segment that is.
+    .replace(/^([A-Za-z]):[\\/]/, (_, drive: string) => `${drive.toUpperCase()}/`)
     .split(/[\\/]/)
     // Dropping empties is what "the first one is omitted" means, and it also collapses `//`.
     .filter((segment) => segment.length > 0)
     .map((segment) =>
       segment
-        .toLowerCase()
-        .replace(/[^a-z0-9_]+/g, '-')
+        .replace(/[^A-Za-z0-9_]+/g, '-')
         .replace(/^-+|-+$/g, '')
     )
     .filter((segment) => segment.length > 0)
