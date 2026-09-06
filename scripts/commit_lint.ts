@@ -35,6 +35,7 @@ export const SCOPES = [
   'assets',
   'document',
   'mcp',
+  'setup',
   'schema',
   'scripts',
   'deps',

@@ -7,6 +7,7 @@
  */
 
 import { dirname, isAbsolute, join, resolve } from '@std/path';
+import { ancestors } from './location.ts';
 import { parse as parseDotenv } from '@std/dotenv';
 import { parse as parseYaml } from '@std/yaml';
 import { type CompiledFilters, compileFilters } from '../filter/rules.ts';
@@ -48,19 +49,6 @@ const FILE_NAMES = [
   'jira-fetch.conf.yaml',
   'jira-fetch.conf.json',
 ];
-
-/** Every directory from `startDir` up to the filesystem root, nearest first. Shared by config
- * discovery and `.env` discovery so the two closeness rules cannot drift apart. */
-const ancestors = (startDir: string): string[] => {
-  const out: string[] = [];
-  let dir = resolve(startDir);
-  for (;;) {
-    out.push(dir);
-    const parent = dirname(dir);
-    if (parent === dir) return out;
-    dir = parent;
-  }
-};
 
 /** The user's own config locations, tried after the upward walk finds nothing. The last group is
  * the pre-0.2 layout, kept so an existing setup keeps working. */
