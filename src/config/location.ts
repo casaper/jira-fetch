@@ -10,6 +10,8 @@
  */
 
 import { dirname, join, resolve } from '@std/path';
+import { join as joinPosix } from '@std/path/posix';
+import { join as joinWindows } from '@std/path/windows';
 import { ConfigError } from './errors.ts';
 
 /** Every directory from `startDir` up to the filesystem root, nearest first. */
@@ -40,6 +42,12 @@ const readEnv: EnvReader = (name) => Deno.env.get(name);
  *
  * `%LOCALAPPDATA%` would avoid roaming-profile sync, which is arguably better for a file holding a
  * token; `%APPDATA%` is what almost every CLI uses, and consistency wins here.
+ *
+ * It joins with the separator of the `os` it was **asked about**, not the one it is running on.
+ * `@std/path`'s bare `join` is the host's, which made `userConfigDir(env, 'linux')` answer
+ * `\home\kim\.config\jira-fetch` on a Windows machine — an answer for no operating system at
+ * all. Same invariant `projectSlug` already states: the transform is a pure function of its
+ * arguments, so a path is spelled identically on every host.
  */
 export const userConfigDir = (
   env: EnvReader = readEnv,
@@ -47,13 +55,13 @@ export const userConfigDir = (
 ): string => {
   if (os === 'windows') {
     const appData = env('APPDATA');
-    if (appData) return join(appData, 'jira-fetch');
+    if (appData) return joinWindows(appData, 'jira-fetch');
     const profile = env('USERPROFILE');
-    if (profile) return join(profile, 'AppData', 'Roaming', 'jira-fetch');
+    if (profile) return joinWindows(profile, 'AppData', 'Roaming', 'jira-fetch');
     throw new ConfigError('cannot locate the configuration directory: %APPDATA% is not set');
   }
   const home = env('HOME');
-  if (home) return join(home, '.config', 'jira-fetch');
+  if (home) return joinPosix(home, '.config', 'jira-fetch');
   throw new ConfigError('cannot locate the configuration directory: $HOME is not set');
 };
 
