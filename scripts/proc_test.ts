@@ -2,23 +2,31 @@
  * child's streams is part of the release working at all. */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { fromFileUrl } from '@std/path';
+import { fromFileUrl, join } from '@std/path';
 import { output, succeeds } from './proc.ts';
 
 const PROC = fromFileUrl(import.meta.resolve('./proc.ts'));
 
+/** The child `run` is pointed at: it echoes back whatever it was handed on stdin. Deliberately
+ * `deno eval` rather than `sh -c`, which does not exist on Windows — the subject here is the
+ * stream, not the program at the other end of it. */
+const ECHO_STDIN = [
+  'const buffer = new Uint8Array(4096);',
+  'const read = await Deno.stdin.read(buffer);',
+  'console.log("got:[" + new TextDecoder().decode(buffer.subarray(0, read ?? 0)) + "]");',
+].join('\n');
+
 /** Runs a one-line program that uses `run`, in a subprocess whose stdin we control. Nothing else
  * can answer "does the child of `run` see our stdin?" — the test process's own stdin is whatever
  * `deno test` was given. */
-const throughRun = async (command: string, stdin: string): Promise<string> => {
+const throughRun = async (stdin: string): Promise<string> => {
   const dir = await Deno.makeTempDir();
   try {
-    const script = `${dir}/driver.ts`;
+    const script = join(dir, 'driver.ts');
     await Deno.writeTextFile(
       script,
-      `import { run } from ${JSON.stringify(PROC)};\nawait run('sh', '-c', ${
-        JSON.stringify(command)
-      });\n`,
+      `import { run } from ${JSON.stringify(PROC)};\n` +
+        `await run(${JSON.stringify(Deno.execPath())}, 'eval', ${JSON.stringify(ECHO_STDIN)});\n`,
     );
     const child = new Deno.Command(Deno.execPath(), {
       args: ['run', '-A', script],
@@ -41,10 +49,7 @@ Deno.test('run passes its own stdin to the child', async () => {
   // which turns every prompt into an instant failure: `npm publish` under two-factor auth could
   // not ask for confirmation and died with EOTP — after the GitHub release had been created, so
   // the release was half-done and the documented "just run it again" recovery was unavailable.
-  assertStringIncludes(
-    await throughRun('echo "got:[$(cat)]"', 'a-secret-code'),
-    'got:[a-secret-code]',
-  );
+  assertStringIncludes(await throughRun('a-secret-code'), 'got:[a-secret-code]');
 });
 
 Deno.test('succeeds reports a failure as an answer rather than throwing', async () => {

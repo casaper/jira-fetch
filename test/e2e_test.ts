@@ -3,7 +3,7 @@
  * filter stages, asset download and the file layout — in one pass. */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { join } from '@std/path';
+import { basename, join } from '@std/path';
 import { EXIT, run } from '../src/main.ts';
 import { configPathFor } from '../src/config/location.ts';
 import type { FiltersConfig } from '../src/config/schema.ts';
@@ -296,7 +296,7 @@ Deno.test('config-file needs no valid configuration, only a repository', async (
     // A run that would otherwise fail — the config it prints may be missing or broken — still
     // answers the one question this subcommand exists for.
     assertEquals(await runWith(['config-file']), EXIT.ok);
-    assert(stdout.some((line) => line.includes(projectRoot.split('/').pop() ?? '')));
+    assert(stdout.some((line) => line.includes(basename(projectRoot))));
   });
 });
 

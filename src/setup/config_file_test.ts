@@ -1,5 +1,11 @@
-import { assertEquals, assertFalse, assertRejects, assertStringIncludes } from '@std/assert';
-import { join } from '@std/path';
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+  assertRejects,
+  assertStringIncludes,
+} from '@std/assert';
+import { fromFileUrl, join } from '@std/path';
 import { ConfigError } from '../config/errors.ts';
 import { loadProjectConfig } from '../config/config.ts';
 import {
@@ -126,7 +132,11 @@ Deno.test('a long project path stays on one line', async () => {
     const long = join(dir, 'a'.repeat(60), 'b'.repeat(60), 'c'.repeat(60));
     const path = join(dir, 'project.yml');
     await writeConfigFile(path, { project: long });
-    assertStringIncludes(await Deno.readTextFile(path), `project: ${long}\n`);
+    // On one line and whole. Not spelled as `project: <path>` exactly, because a Windows path
+    // contains backslashes and YAML quotes it — which is correct, and not what this is testing.
+    const line = (await Deno.readTextFile(path)).split('\n').find((l) => l.startsWith('project:'));
+    assert(line);
+    assertStringIncludes(line, long);
     assertEquals((await readConfigFileIfPresent(path))?.project, long);
   });
 });
@@ -134,7 +144,9 @@ Deno.test('a long project path stays on one line', async () => {
 Deno.test('the documented example is a valid configuration', async () => {
   // The README points readers at docs/config-example.yml instead of carrying inline examples, so
   // without this a drift between it and the Zod schema is a documentation bug with no detector.
-  const path = new URL('../../docs/config-example.yml', import.meta.url).pathname;
+  // fromFileUrl, not .pathname: on Windows the pathname of file:///D:/x is "/D:/x", which is
+  // not a path any API accepts.
+  const path = fromFileUrl(import.meta.resolve('../../docs/config-example.yml'));
   const config = await readConfigFileIfPresent(path);
   assertEquals(typeof config?.project, 'string');
   // Every credential a run needs, so someone working from it does not get told what is missing.

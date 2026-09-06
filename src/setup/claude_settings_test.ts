@@ -3,6 +3,16 @@ import { join } from '@std/path';
 import { ConfigError } from '../config/errors.ts';
 import { applyDenyRules, configDirPattern, denyTargets } from './claude_settings.ts';
 
+// `configDirPattern` resolves its arguments, so it has to be given paths that are already absolute
+// *on this host*: a POSIX literal picks up a drive letter on Windows and the comparison then differs
+// by a prefix the test is not about. The patterns themselves always use forward slashes, which is
+// the property worth pinning — only the anchored form keeps the drive, because the path does.
+const WINDOWS = Deno.build.os === 'windows';
+const abs = (...segments: string[]) =>
+  WINDOWS ? `C:\\${segments.join('\\')}` : `/${segments.join('/')}`;
+const anchored = (...segments: string[]) =>
+  WINDOWS ? `//C:/${segments.join('/')}/**` : `//${segments.join('/')}/**`;
+
 const withTemp = async (fn: (dir: string) => Promise<void>): Promise<void> => {
   const dir = await Deno.makeTempDir();
   try {
@@ -16,7 +26,7 @@ const readJson = async (path: string) => JSON.parse(await Deno.readTextFile(path
 
 Deno.test('a config directory under the home directory is written as a ~ pattern', () => {
   assertEquals(
-    configDirPattern('/home/kim/.config/jira-fetch', '/home/kim'),
+    configDirPattern(abs('home', 'kim', '.config', 'jira-fetch'), abs('home', 'kim')),
     '~/.config/jira-fetch/**',
   );
 });
@@ -24,18 +34,28 @@ Deno.test('a config directory under the home directory is written as a ~ pattern
 Deno.test('a directory outside the home directory is anchored at the filesystem root', () => {
   // `~` is the readable form and survives being copied to another machine, but it can only be
   // used when the directory really is under $HOME.
-  assertEquals(configDirPattern('/opt/jira-fetch', '/home/kim'), '//opt/jira-fetch/**');
+  assertEquals(
+    configDirPattern(abs('opt', 'jira-fetch'), abs('home', 'kim')),
+    anchored('opt', 'jira-fetch'),
+  );
 });
 
 Deno.test('a sibling directory with a matching prefix is not mistaken for a child', () => {
-  assertEquals(configDirPattern('/home/kimberly/cfg', '/home/kim'), '//home/kimberly/cfg/**');
+  assertEquals(
+    configDirPattern(abs('home', 'kimberly', 'cfg'), abs('home', 'kim')),
+    anchored('home', 'kimberly', 'cfg'),
+  );
 });
 
 Deno.test('the user file denies the config directory; the project file denies setup', () => {
-  const [user, project] = denyTargets('/home/kim/.config/jira-fetch', '/home/kim', '/work/thing');
-  assertEquals(user.path, '/home/kim/.claude/settings.json');
+  const [user, project] = denyTargets(
+    abs('home', 'kim', '.config', 'jira-fetch'),
+    abs('home', 'kim'),
+    abs('work', 'thing'),
+  );
+  assertEquals(user.path, join(abs('home', 'kim'), '.claude', 'settings.json'));
   assertEquals(user.rules, ['Read(~/.config/jira-fetch/**)', 'Edit(~/.config/jira-fetch/**)']);
-  assertEquals(project.path, '/work/thing/.claude/settings.local.json');
+  assertEquals(project.path, join(abs('work', 'thing'), '.claude', 'settings.local.json'));
   assertEquals(project.rules, ['Bash(jira-fetch setup:*)']);
 });
 

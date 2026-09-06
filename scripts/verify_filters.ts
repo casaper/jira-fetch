@@ -21,7 +21,7 @@
  * way to look at what the tool actually produces for real tickets.
  */
 
-import { join } from '@std/path';
+import { fromFileUrl, join } from '@std/path';
 import { loadProjectConfig, resolveConfig } from '../src/config/config.ts';
 import { configPathFor, findProjectRoot, userConfigDir } from '../src/config/location.ts';
 import { ConfigError } from '../src/config/errors.ts';
@@ -33,7 +33,7 @@ import { createSession } from '../src/fetch/session.ts';
 import type { Config } from '../src/config/config.ts';
 import type { JiraIssue } from '../src/jira/types.ts';
 
-const REPO = new URL('..', import.meta.url).pathname;
+const REPO = fromFileUrl(import.meta.resolve('../'));
 const OUT_ROOT = join(REPO, 'tmp', 'filters');
 
 /** The corpus, chosen for the attributes it spans rather than for being recent: several issue

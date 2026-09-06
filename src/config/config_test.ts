@@ -6,11 +6,14 @@ import {
   assertStringIncludes,
   assertThrows,
 } from '@std/assert';
-import { join } from '@std/path';
+import { join, resolve as resolvePath } from '@std/path';
 import { ConfigError, type ConfigFile, loadProjectConfig, resolveConfig } from './config.ts';
 import { parseFilters } from './schema.ts';
 
-const CWD = '/work/project';
+// Resolved, so it is a real absolute path on the host running the test. `resolveConfig` resolves
+// `out` against it, and on Windows resolving a POSIX-shaped literal silently adds a drive letter
+// — which would make the expectation and the answer differ by a prefix neither test is about.
+const CWD = resolvePath('/work/project');
 const PATH = '/home/kim/.config/jira-fetch/work_project.yml';
 
 /** The three credentials every config file must carry, since nothing else can supply them. */

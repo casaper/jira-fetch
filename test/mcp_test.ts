@@ -9,7 +9,7 @@
  */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { dirname, join } from '@std/path';
+import { dirname, fromFileUrl, join } from '@std/path';
 import { stringify as stringifyYaml } from '@std/yaml';
 import { configPathFor } from '../src/config/location.ts';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
@@ -310,7 +310,9 @@ Deno.test('every byte the server writes to stdout is a JSON-RPC frame', async ()
       '--allow-env=HOME,APPDATA,USERPROFILE',
       '--allow-read',
       '--allow-write',
-      new URL('../src/main.ts', import.meta.url).pathname,
+      // fromFileUrl, not .pathname: on Windows that is "/D:/...", which deno resolves from the
+      // wrong place and then cannot find deno.json, so every import fails.
+      fromFileUrl(import.meta.resolve('../src/main.ts')),
       'mcp',
       '--out',
       outDir,
