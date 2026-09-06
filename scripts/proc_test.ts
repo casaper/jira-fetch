@@ -2,10 +2,13 @@
  * child's streams is part of the release working at all. */
 
 import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
-import { fromFileUrl, join } from '@std/path';
+import { join } from '@std/path';
 import { output, succeeds } from './proc.ts';
 
-const PROC = fromFileUrl(import.meta.resolve('./proc.ts'));
+/** A `file://` URL, not a path: the generated driver below *imports* this, and an absolute Windows
+ * path is not a module specifier — `D:\a\...` parses as the scheme "d". A POSIX path happened to
+ * work only because it resolves against the driver's own file: base. */
+const PROC = import.meta.resolve('./proc.ts');
 
 /** The child `run` is pointed at: it echoes back whatever it was handed on stdin. Deliberately a
  * script file rather than `sh -c` (which does not exist on Windows) or `deno eval` (whose program
