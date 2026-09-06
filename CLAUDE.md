@@ -16,6 +16,8 @@ way when adding one; the shipped binaries already embed Deno and V8.
 
 ```sh
 deno task dev DN-1243 --out tmp      # run from source (no `--`: deno forwards it literally)
+deno task dev config-file             # which config file a run in this repo would read
+deno task dev setup                   # the interactive menu (needs a real terminal)
 deno task mcp                         # the MCP server from source, on stdio
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
 deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
@@ -41,20 +43,21 @@ deno task publish                     # push, build:all, checksum and attach to 
 The suite needs no credentials and no network — `test/e2e_test.ts` drives the whole CLI against a
 fake Jira on localhost, which is what covers the wiring in `src/main.ts`.
 
-**The suite is sealed, and `run` is what seals it.** `run(argv, deps)` takes an optional `env`; when
-it is given, that record is used verbatim — no `.env` file is read and `Deno.env` is never
-consulted, not even for `HOME`. `withJira` in `test/e2e_test.ts` passes `{ env: { JIRA_API_TOKEN:
-'t' } }`, so an exported `JIRA_BASE_URL` no longer redirects the suite at a real site and
-`env -u JIRA_BASE_URL … deno test` is no longer needed.
+**The suite is sealed, and `run` is what seals it.** `run(argv, deps)` takes `projectRoot` and
+`configDir`; when they are given they are used **verbatim** — no walk for `.git`, and `$HOME` /
+`%APPDATA%` are never consulted. `withJira` in `test/e2e_test.ts` passes both and writes a real
+config file for a temp project root, so nothing resolves the developer's own configuration.
 
-That parameter is load-bearing rather than tidy. `.env` and `.env.local` are credential sources now,
-found by walking **upward**, and this repo has an untracked `.env.local` holding a real
-`JIRA_API_TOKEN` — so an unsealed run started anywhere in the tree picks it up. Nothing asserts the
-token, so a leak would not turn the suite red; it would just quietly stop being hermetic. Any new
-entry point that calls `run` from a test must pass an explicit `env`.
+That is load-bearing rather than tidy, and the hazard moved rather than went away. It used to be
+`.env` files found by walking upward past a real `JIRA_API_TOKEN`. It is now the derived path: an
+unsealed run works out which git repository it is in and reads
+`$HOME/.config/jira-fetch/users_<you>_code_jira-fetch.yml`, which is this repository's real
+configuration, token included. Nothing asserts the token, so a leak would not turn the suite red;
+it would just quietly stop being hermetic. **Any new entry point that calls `run` from a test must
+pass both.**
 
-The same file is why **`deno task dev` is live-fire in this repo**: it resolves a real token from
-`.env.local` while `baseUrl` still comes from wherever you point it.
+The same file is why **`deno task dev` is live-fire in this repo**: it resolves the real
+configuration for this checkout, so it talks to the real site.
 
 The fake-Jira-on-localhost approach works at all only because `normalizeBaseUrl`
 (`src/config/config.ts`) permits plain http for loopback hosts. Tightening it to https-only fails
@@ -177,7 +180,9 @@ refuses to start when they have drifted — the same class of hazard as `PERMISS
 src/main.ts             orchestration; owns the exit codes and the mode dispatch
 src/cli/args.ts         flag parsing and --help
 src/config/schema.ts    Zod schemas — the single source of truth (see below)
-src/config/config.ts    flag/env/file resolution, per key
+src/config/location.ts  where a project's config file is — git root, slug, config dir
+src/config/config.ts    reading and resolving that one file
+src/setup/              the `setup` menu, the config writer, the Claude Code deny rules
 src/jira/client.ts      auth, retry, and every REST call
 src/filter/rules.ts     compiles validated rules into their runtime form
 src/filter/evaluate.ts  the three filter stages
@@ -193,51 +198,80 @@ spec/                   vendored Atlassian schemas, pinned (see below)
 Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`, and the fake Jira both
 end-to-end suites drive is `test/fake_jira.ts`.
 
-## Configuration is discovered by closeness, and meant to be committed
+## Configuration is derived, never discovered
 
-`resolveConfig` resolves **per key**, across four layers:
+There is one config file per project and it is the **only** source of credentials and policy.
+`src/config/location.ts` computes where it is; `src/config/config.ts` reads it. Nothing searches
+for anything.
 
 ```
-CLI flag  >  process env  >  .env.local  >  .env  >  config file
+findProjectRoot(cwd)  ->  nearest ancestor with a .git entry, canonicalised
+projectSlug(root)     ->  users_you_code_thing
+configPathFor(...)    ->  $HOME/.config/jira-fetch/users_you_code_thing.yml
+                          %APPDATA%\jira-fetch\... on Windows
 ```
 
-`src/main.ts` merges the first two into one record and hands it over; `resolveConfig` itself never
-reads ambient state. `loadDotenv` and `discoverConfigFile` share one `ancestors()` walk, so the two
-closeness rules cannot drift: the **nearest** directory holding a match wins **outright**, and
-levels never merge. Both walks run to the filesystem root.
+Resolution is `--out` > `out:` in the file > cwd, and that is the whole of it — `--out` is the only
+flag that still overlaps a config key. There is no environment layer, no `.env`, no `--config`,
+`--token`, `--base-url` or `--email`, and no `.yaml`/`.json` spelling.
 
-That "outright" is the point of the feature, not an implementation detail. A project commits
-`.jira-fetch.yaml` so its filters — and `allowJql: false` — apply to everyone working in the tree;
-if a developer's `~/.config/jira-fetch.yaml` could layer underneath, the project's policy would be
-overridable from a home directory.
+**This is the feature, not the plumbing.** `jira-fetch mcp` claims an agent's access is decided by
+a file it does not control, and discovery-by-closeness meant it very nearly was not: an agent that
+could write in the project did not need to edit a committed `.jira-fetch.yml`, because _creating_
+one with empty filters in the directory the server started from shadowed it, the nearest file
+winning outright. An exported `JIRA_API_TOKEN` made the question moot anyway. Do not reintroduce
+any of it — not a `--config` escape hatch "for testing" (that is what `RunDeps` is for), not an
+environment override "for CI", not a project-local file "for team defaults". Each one is the
+bypass, restored.
 
-Nine config file names are searched in each directory, `.conf` variants first, then the home
-locations (including the pre-0.2 `~/.config/jira-fetch/config.*`). `parseConfigText` dispatches on
-`.endsWith('.json')`, so a new `.yml`/`.yaml` name needs no parser change.
+**`findProjectRoot` walks for `.git` instead of running `git rev-parse --show-toplevel`**, and must
+keep doing so. Spawning git needs `--allow-run`; `deno compile` bakes permissions in at build time
+with no per-subcommand grant, so the MCP server binary would gain the ability to spawn processes.
+It matches `.git` as a file as well as a directory (worktrees, submodules) and ignores `GIT_DIR` /
+`GIT_WORK_TREE`, which are environment overrides of the thing this exists to make underivable. It
+**canonicalises** its result, because `Deno.cwd()` reports `/private/var` on macOS where an
+argument may carry `/var`, and a filename derived from the path must not depend on which symlink
+you arrived through.
 
-**The token warning classifies by location only.** `isHomeConfig` asks whether the file sits in
-`$HOME`, `$HOME/.config` or `$HOME/.config/jira-fetch` — nothing reads `.gitignore` or shells out to
-git, because the tool has no business guessing what is tracked. The condition is that the file _has_
-a `token` key, not that the token was resolved from it: a secret on disk in a project is the
-problem, whether or not `JIRA_API_TOKEN` overrode it today. Warnings are returned on `Config` rather
-than logged, which keeps `resolveConfig` pure and the message directly testable.
+**`projectSlug` is not injective and the `project` key is the guard.** `/a/b_c` and `/a_b/c` land
+on the same filename; `assertProjectMatches` compares the file's `project` against the repository
+in hand and throws `ConfigError`. Do not soften that to a warning — running under another
+project's filters is the failure the whole layout exists to prevent, and the same reasoning applies
+here as for `makeFieldResolver` below. The slug is a pure string transform that deliberately does
+not resolve its argument, so a Windows path slugs identically on every host and the rules are
+testable without a Windows runner.
 
-`.env` parsing is `@std/dotenv`'s `parse()`, never `load()`. `load()` is deprecated upstream, and
-its `export: true` mode writes `Deno.env` — which would make a `.env` value indistinguishable from a
-genuinely exported one and silently jump the queue above.
+`PERMISSIONS` is now `--allow-net --allow-env=HOME,APPDATA,USERPROFILE --allow-read --allow-write`.
+Those three variables locate the config directory and are the only environment reads left. The
+narrowing can only fail at runtime, so the subprocess test in `test/mcp_test.ts` runs the real
+server under exactly that set — keep it in step with `PERMISSIONS` and `deno.json`.
 
-**`parse()` expands `$NAME` only in _unquoted_ values.** `TOKEN="$OTHER"` — the spelling a shell
-reads correctly, and the one npm `dotenv` expands — comes back as the literal text `$OTHER`, and a
-name it cannot resolve comes back as the literal text `undefined`. That yields a well-formed
-credential made of a variable name, which Jira answers with `404 Issue does not exist or you do not
-have permission to see it`: an error pointing nowhere near its cause. `assertExpanded`
-(`src/config/config.ts`) refuses a resolved value that is _entirely_ a reference, for the four keys
-the tool reads and no others. Matching the whole value is what keeps a password containing a `$`
-intact.
+## Setup writes files outside the repository, and only when asked
 
-The expansion also **reads `Deno.env`**, so `parse()` is pure with respect to mutation but not to
-ambient reads, and it throws `NotCapable` without `--allow-env` as soon as a value contains an
-unquoted `$`. Do not take that permission away on the grounds that parsing needs none.
+`src/setup/` has three parts, split so that the two that can be tested are.
+
+- **`config_file.ts`** composes and writes the config: validated through the loader's own
+  `parseConfigFile`, so `setup` cannot produce a file the tool would refuse. Modes are passed at
+  **creation** (`0700` directory, `0600` file) rather than chmod'ed afterwards — a chmod after the
+  write leaves a window where a file holding a token is world-readable. `repairMode` then fixes
+  anything that already existed. Windows is skipped: `%APPDATA%` already carries the equivalent ACL.
+- **`claude_settings.ts`** merges Claude Code deny rules. It **preserves every other key** — these
+  files carry the user's own `allow`, `ask`, `hooks`, `enabledPlugins` — appends only missing
+  rules, and refuses to rewrite a file it could not parse, naming the rules to add by hand instead.
+  Config-directory denies go to `~/.claude/settings.json` (user scope, because a deny at any scope
+  beats an allow at any other, and one write covers every project); the `setup` deny goes in the
+  project so a teammate sees it.
+- **`tui.ts`** is the menu, and is kept thin because a menu cannot be driven by the suite. It
+  refuses without `Deno.stdin.isTerminal()` — an agent's shell has no controlling terminal, which
+  is a real barrier at zero permission cost and **not** a boundary; say so rather than implying
+  otherwise. It spawns nothing: "open it in your editor" would cost `--allow-run` in every binary,
+  the MCP server included, so it prints the path.
+
+Only `setup` writes any of this. `fetch` and `mcp` must never touch Claude Code configuration — a
+Jira fetcher rewriting permission files on every run would fight the user's own edits.
+
+`space` is `promptSelect`'s selection key, so a scripted pty test cannot use a filter string
+containing one. That cost an hour; it is written down here so it costs nobody else one.
 
 ## Zod is the single source of truth for configuration
 
@@ -409,17 +443,20 @@ so none of them is cosmetic.
   the output contract overwrites unconditionally, so a stub would destroy a real document written
   under a looser config.
 
-**Where the config lives is part of the feature, and the README documents it as such.** The code
-guarantee — filters decide access — holds only if the file that carries them is one the agent does
-not control. Discovery reads the _nearest_ config file and never layers, so an agent that can write
-in the project does not need to edit a committed `.jira-fetch.yml`: creating one with empty filters
-in the directory the server starts from shadows it. `--config <absolute path>` is what resists that,
-because `src/main.ts:125` routes it to `loadConfigFile` and `discoverConfigFile` is never called.
-The recommended deployment is therefore a user-scoped server definition, `--config` at an absolute
-path, and the `token` key in that same home config — since the environment outranks the file, an
-exported `JIRA_API_TOKEN` re-opens the bypass on its own. Do not simplify the README back to
-`claude mcp add jira-fetch -- jira-fetch mcp` as the recommended form; it is offered there as the
-convention-not-boundary case on purpose.
+**Where the config lives is part of the feature.** The code guarantee — filters decide access —
+holds only because the file carrying them is one the agent does not control, and that is now a
+property of `src/config/location.ts` rather than of an invocation someone has to get right. See
+_Configuration is derived, never discovered_ above: there is nothing to pass, so
+`claude mcp add --scope user jira-fetch -- jira-fetch mcp --out docs/jira` is the whole of the
+recommended setup and the README says so. `--scope user` is still worth keeping — it puts the
+launch command outside the tree the agent edits — but no part of the guarantee depends on it any
+more.
+
+`jira-fetch setup` offers Claude Code deny rules for the config directory. Those are a speed bump
+and both the README and `src/setup/claude_settings.ts` say so in those words: `Read` rules do not
+reach a script that opens the file itself, and an agent with a shell can edit the settings files
+too. Do not let that language drift into implying a sandbox. The only hard boundary is what the
+API token may see on Atlassian's side.
 
 `serveMcp` constructs the transport itself rather than letting `serveStdio` do it. `serveStdio`
 overwrites the transport's `onclose` and does not close it when stdin ends — the process merely runs

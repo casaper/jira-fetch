@@ -35,73 +35,65 @@ Deno installation. Or run from source:
 deno task dev DN-1243
 ```
 
-## Credentials
+## Configuration
 
-Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>, then:
+Everything — your credentials and the filters — lives in **one YAML file per project**, in your own
+configuration directory, outside every repository:
 
-```sh
-export JIRA_BASE_URL=https://your-site.atlassian.net
-export JIRA_EMAIL=you@example.com
-export JIRA_API_TOKEN=...
-```
+|              |                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------ |
+| macOS, Linux | `~/.config/jira-fetch/<project-path>.yml`                                            |
+| Windows      | `%APPDATA%\jira-fetch\<project-path>.yml` (that is `%USERPROFILE%\AppData\Roaming\`) |
 
-Or put them in a `.env` (or `.env.local`) file beside your project:
-
-```sh
-JIRA_BASE_URL=https://your-site.atlassian.net
-JIRA_EMAIL=you@example.com
-JIRA_API_TOKEN=...
-```
-
-Point one key at another **unquoted** — `JIRA_API_TOKEN=$ATLASSIAN_API_TOKEN`, never
-`JIRA_API_TOKEN="$ATLASSIAN_API_TOKEN"`. A quoted value is taken literally, which would otherwise
-send Jira a variable name as your token and get back a 404 on the issue; the tool refuses such a
-value instead.
-
-Values resolve per key in the order **CLI flags → environment → `.env` → config file**, so a flag
-for one key never discards the file's value for another. Both files are found by **closeness** —
-the nearest ancestor directory that has one wins, so running the tool from a subdirectory picks up
-the project's settings:
-
-|                                                   |                                                                        |
-| ------------------------------------------------- | ---------------------------------------------------------------------- |
-| `.env`, `.env.local`                              | nearest ancestor directory holding either; `.env.local` shadows `.env` |
-| `.jira-fetch.yml` `.yaml` `.json`                 | searched upward from the working directory                             |
-| `.jira-fetch.conf.yml` `.yaml` `.json`            | same, checked first within each directory                              |
-| `jira-fetch.conf.yml` `.yaml` `.json`             | same again, without the leading dot                                    |
-| `~/.config/jira-fetch[.conf].yml` `.yaml` `.json` | your own defaults                                                      |
-| `~/.jira-fetch.conf.yml` `.yaml` `.json`          | likewise                                                               |
-
-The **nearest config file found is the only one read** — configurations do not layer. Both walks run
-to the filesystem root, so a `~/.env` applies everywhere, exactly as `~/.config/jira-fetch.yaml`
-does.
-
-### Where the config and the token should live
-
-There are two setups, and the one you want depends on whether the config is a **team convention**
-or an **access policy**.
-
-**Committed to the project.** Its filters — and `allowJql: false` — then apply to everyone working
-in that tree, which is the point of having them in a file rather than in someone's shell history.
-Your API token is not part of that: keep it in `.env.local`, in the environment, or pass `--token`,
-and add `.env.local` to the project's `.gitignore`. If a config file inside a project sets `token`,
-the tool says so on every run.
-
-**In your home directory.** `~/.config/jira-fetch.yaml` can hold the `token` key alongside the
-filters, so that nothing about your Jira access lives in the project at all. A token there raises
-no warning — it is your own file, not one heading for git — but it is a credential on disk, so:
+The filename is derived from the git repository you are in, so you never have to pick it:
 
 ```sh
-chmod 600 ~/.config/jira-fetch.yaml
+jira-fetch setup          # create or change it, interactively
+jira-fetch config-file    # print its path, whether or not it exists yet
 ```
 
-That is the setup that matters once the caller is an **agent** rather than you. See
-[MCP server](#mcp-server) below, which is the whole argument for it.
+`setup` asks for each setting and explains what it is for, including where to create an API token.
+To edit the file by hand afterwards:
 
-**The two do not combine.** The nearest config file found is the only one read, so a
-`.jira-fetch.yml` at or above the working directory means `~/.config/jira-fetch.yaml` is never
-consulted. `--config <path>` skips discovery and names the file outright, which is how you get both
-on one machine.
+```sh
+$EDITOR "$(jira-fetch config-file)"
+```
+
+A minimal file:
+
+```yaml
+project: /home/you/code/thing # the repository this configuration is for
+baseUrl: https://your-site.atlassian.net
+email: you@example.com
+token: ATATT3xFfGF0...
+```
+
+`jira-fetch` must be run inside a git repository — the repository root is what names the file. The
+directory is created `0700` and the file `0600`. On Windows there is nothing to set: everything
+under `%APPDATA%` already inherits an ACL granting only you, `SYSTEM` and `Administrators`.
+
+### There is nothing else
+
+No `JIRA_BASE_URL`, no `JIRA_EMAIL`, no `JIRA_API_TOKEN`, no `.env`, no `.env.local`, no config file
+inside the project, and no `--config`, `--token`, `--base-url` or `--email` flag. Not deprecated —
+absent. Configuration does not layer, and there is no search order, because there is no search: the
+path is computed from the repository root and that is the only place the tool looks.
+
+That is a deliberate trade against convenience, and the reason is [the MCP server](#mcp-server).
+The tool's central claim is that an agent's access to Jira is decided by a file it does not
+control, and every one of those inputs was a way around it — a `.jira-fetch.yml` created in the
+working directory shadowed the real one, a flag named a different file outright, and an exported
+`JIRA_API_TOKEN` was a credential the agent's own shell could send to Jira with `curl` without
+going near this tool.
+
+### If two projects share a filename
+
+Path segments become `_`, and everything inside a segment is lower-cased with runs of punctuation
+folded to `-`, so `/Users/you/code/My Thing` becomes `users_you_code_my-thing.yml`. That mapping is
+not reversible: `/a/b_c` and `/a_b/c` produce the same name. This is why the file carries a
+`project` key — the tool compares it against the repository it is actually in and stops with exit 2
+rather than quietly applying another project's filters. Run `jira-fetch setup` in the second
+project to write its own file, or rename one of the directories.
 
 ## Usage
 
@@ -109,9 +101,10 @@ on one machine.
 jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
 jira-fetch --jql "<JQL>"           fetch every issue matching a query
 jira-fetch mcp                     serve the same pipeline over MCP (see below)
+jira-fetch setup                   configure this project, interactively
+jira-fetch config-file             print the path of this project's config file
 
   -o, --out <dir>      output directory (default: current directory)
-  -c, --config <path>  config file to use, skipping discovery
   -n, --dry-run        report what would be fetched and filtered; write nothing
   -v, --verbose        per-issue progress and filter decisions on stderr
 ```
@@ -121,8 +114,9 @@ because every issue was excluded by a filter.
 
 ## Filters
 
-Filters decide which tickets are fetched at all, and which comments make it into the document. Copy
-`.jira-fetch.example.yml` to `.jira-fetch.yml` to start.
+Filters decide which tickets are fetched at all, and which comments make it into the document.
+`jira-fetch setup` walks through them; [`docs/config-example.yml`](docs/config-example.yml) shows
+every option in one file.
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
@@ -236,50 +230,60 @@ token for every class of ticket you want to fence off.
 ### Setting it up with Claude Code
 
 ```sh
-claude mcp add --scope user jira-fetch -- \
-  jira-fetch mcp --config /home/you/.config/jira-fetch.yaml --out docs/jira
+claude mcp add --scope user jira-fetch -- jira-fetch mcp --out docs/jira
 ```
 
-Every part of that line is doing something, and the next section says what.
+There is nothing else to pass. The server finds the same config file the CLI would — derived from
+the repository it is started in — and neither a file appearing in your project nor an exported
+variable can change which one that is.
 
-The simpler forms — `claude mcp add jira-fetch -- jira-fetch mcp`, or a `.mcp.json` committed
-beside your project config — work too, and are fine when the filters are a convention rather than a
-boundary. They leave the policy in the project, which is the thing to think about first.
+`--scope user` puts the server definition in `~/.claude.json` rather than a `.mcp.json` in the
+project, so the command the server is launched with is not itself a file the agent edits. That is
+worth keeping even though the policy no longer depends on it.
 
-**Check the config once, whichever form you use.** `-v` prints the config file the server resolved,
-on stderr, where Claude Code shows it as MCP server output. If it is not the file you meant, nothing
-else on this page is true of your setup.
+**Check it once.** `-v` prints the config file the server resolved, on stderr, where Claude Code
+shows it as MCP server output. If it is not the file you meant, nothing else on this page is true
+of your setup.
 
-### Keep the policy and the token outside the project
+### What the agent cannot do
 
-An agent that edits files in your project and runs commands in it has two easy ways past a server
-whose configuration lives in that same project. Neither requires it to do anything devious; both
-are ordinary uses of tools it already has.
+An agent that edits files in your project and runs commands in it used to have two easy ways past a
+server configured from that same project. Neither is available now, and neither closure depends on
+you remembering a flag.
 
-- **Rewrite the policy.** A committed `.jira-fetch.yml` is a file in the tree like any other. It
-  does not even have to touch yours: discovery reads the **nearest** config file and never layers,
-  so a new `.jira-fetch.yml` with an empty `filters` block, dropped in a subdirectory the server is
-  started from, shadows the one you committed the next time it starts.
-- **Skip the server.** A token in `.env.local`, or exported into the environment Claude Code hands
-  down to its tools, is a token the agent's own shell can read and send to Jira directly. This
-  server restricts what _it_ will fetch; it cannot restrict a request that never goes through it.
+- **It cannot rewrite the policy**, because the policy is not in the project. It is not even in a
+  file the tool will search for: the path is computed from the repository root, so creating a
+  `.jira-fetch.yml` in the working directory — once enough to shadow a committed config, since the
+  nearest file won outright — now does nothing at all.
+- **It cannot skip the server with the token**, because the token is not in the environment its
+  shell inherits, nor in a `.env.local` in the tree. It is in the config file and nowhere else, and
+  there is no `--token` flag to put it in a process table either.
 
-Three things close both routes. Each is load-bearing — leave one out and its route reopens.
+`jira-fetch setup` offers to write Claude Code deny rules as well:
 
-1. **`--scope user`** writes the server definition to `~/.claude.json` instead of a `.mcp.json` in
-   the project, so the command the server is launched with is not itself a file the agent edits.
-2. **`--config <absolute path>`** skips discovery entirely: that file is read and nothing else is
-   looked for, so a `.jira-fetch.yml` appearing in the tree later changes nothing. Write the path
-   out in full — `~` is expanded by your shell, not by a process someone else spawns, so a literal
-   tilde in the server definition is simply a directory that does not exist.
-3. **The token goes in that file**, under `token:`, and nowhere else. Resolution is flag →
-   environment → `.env` → config file, so an exported `JIRA_API_TOKEN` or a `.env.local` still
-   sitting in the repo **overrides it** and leaves the exposure exactly where it was. Unset the one
-   and delete the other, or this step buys nothing. Don't pass `--token` in the server definition
-   either: that puts the secret in `~/.claude.json` and in the process table.
+```json
+// ~/.claude/settings.json — one write, every project
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.config/jira-fetch/**)",
+      "Edit(~/.config/jira-fetch/**)"
+    ]
+  }
+}
+```
 
-What you end up with is a policy and a credential that the agent's workspace does not contain, and
-a server it cannot re-point by writing a file.
+```json
+// <project>/.claude/settings.local.json
+{ "permissions": { "deny": ["Bash(jira-fetch setup:*)"] } }
+```
+
+The config-directory rules go at **user** scope deliberately: a deny at any scope beats an allow at
+any other, so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob`
+and the file reads Claude Code recognises inside Bash. `setup` merges them into whatever is already
+in those files and adds nothing on a second run.
+
+`jira-fetch setup` also refuses to run without a terminal, which an agent's shell does not have.
 
 ### The tools
 
@@ -304,14 +308,18 @@ keys one at a time and watching which answer comes back. Jira's own API already 
 ### What this does and does not guarantee
 
 **None of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
-~/.config/jira-fetch.yaml` is not a trick, it is a command. What the setup above changes is that the
-policy is no longer a file in the tree whose editing is a routine part of the work, and the
-credential is in neither the tree nor the environment the agent inherits. Reaching either now means
-deliberately stepping outside the workspace: unusual, and visible when it happens. Claude Code's own
-`permissions.deny` rules can refuse those reads outright if you want that as well. The only **hard**
-boundary is on Atlassian's side — an API token belonging to an account that cannot see what you do
-not want read. This tool makes the soft boundary a great deal harder to cross by accident or by
-improvisation; it does not replace the hard one.
+"$(jira-fetch config-file)"` is not a trick, it is a command. The deny rules above stop the
+well-behaved path, and they are worth having for that, but they do not reach a Python or Node
+script that opens the file itself, and an agent with a shell can edit the settings files too. The
+terminal check on `setup` is the same kind of thing: a barrier, not a boundary, since anything that
+can allocate a pty gets past it.
+
+What the design actually buys is that the policy and the credential are no longer things the agent
+encounters in the course of its work. Reaching either means deliberately stepping outside the
+workspace — unusual, and visible when it happens — rather than editing a file that was sitting in
+the repository anyway. The only **hard** boundary is on Atlassian's side: an API token belonging to
+an account that cannot see what you do not want read. This tool makes the soft boundary a great
+deal harder to cross by accident or by improvisation; it does not replace the hard one.
 
 The guarantee is also about **what the server will fetch**, not about what an agent can read.
 Documents already sitting in the output directory are readable with its ordinary file tools, and

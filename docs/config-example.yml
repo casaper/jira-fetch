@@ -1,29 +1,35 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
 
-# This file has two homes, and they mean different things.
+# Every option, in one file, for reference. This is not a file you copy into a project — there is
+# exactly one config per project and it lives in your own configuration directory:
 #
-# Copied to .jira-fetch.yml and committed, the filters below apply to everyone working in this
-# project. Credentials do not belong in a file you commit — keep JIRA_API_TOKEN in .env.local
-# (which your .gitignore should cover), in the environment, or pass --token.
+#   ~/.config/jira-fetch/<project-path>.yml      macOS and Linux
+#   %APPDATA%\jira-fetch\<project-path>.yml      Windows
 #
-# Copied to ~/.config/jira-fetch.yaml, it can carry the token as well, and then nothing about
-# your Jira access lives in the project at all. That is the setup to use when the caller is an
-# agent through `jira-fetch mcp`: point the server at this file with --config <absolute path>,
-# so nothing appearing in the project tree can shadow it, and unset JIRA_API_TOKEN, since the
-# environment outranks this file. `chmod 600` it. See the MCP server section of the README.
+# `jira-fetch setup` writes it and `jira-fetch config-file` prints its path. Nothing else is read:
+# no environment variables, no .env, no config file inside the project, no --config flag. That is
+# what lets `filters` below decide an agent's access rather than merely suggest it.
+
+# The repository this configuration governs. Required, and checked against the repository the tool
+# is actually running in — two project paths can produce the same filename, and running under
+# another project's filters is the one failure this whole layout exists to prevent.
+project: /home/you/code/thing
 
 baseUrl: https://your-site.atlassian.net
 
-# Only in the home copy, never in a committed one — the tool warns on every run if a config
-# inside a project tree sets this.
-# token: ATATT3xFfGF0...
+# There is no environment variable and no flag for this. A token here is one a shell in your
+# project does not inherit, which is the point: an exported token is one an agent can send to Jira
+# with curl, never going through this tool at all.
+token: ATATT3xFfGF0...
 
-# Also removes the search_issues tool from `jira-fetch mcp`, so an agent cannot run a query either.
+# Also removes the search_issues tool from `jira-fetch mcp` entirely, rather than having it refuse
+# when called — so an agent cannot run a query either.
 allowJql: true
 
 # These are what an agent gets, too. `jira-fetch mcp` serves the same pipeline over MCP and runs
 # the same two filter stages, so a ticket excluded here is one it cannot fetch — by configuration
-# rather than by instruction. See the MCP server section of the README.
+# rather than by instruction, and from a file outside the tree it works in. See the MCP server
+# section of the README.
 filters:
   exclude:
     - project: [SUP]

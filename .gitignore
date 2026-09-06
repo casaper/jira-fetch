@@ -1,11 +1,6 @@
 dist/
 tmp/
 
-# Secrets. A project using jira-fetch wants these two lines too.
+# Secrets. jira-fetch itself no longer reads these — its own config lives outside the repository,
+# in ~/.config/jira-fetch/ — but this repo still keeps real credentials here for scripts.
 .env*.local
-
-# This repo's own scratch config, not a recommendation: downstream projects are meant to *commit*
-# theirs, or keep one in $HOME. See .jira-fetch.example.yml.
-.jira-fetch.json
-.jira-fetch.yml
-tmp
