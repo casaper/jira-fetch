@@ -36,6 +36,12 @@ export type RuleTarget = {
  * slashes, including on Windows.
  */
 export const configDirPattern = (configDir: string, home: string): string => {
+  // `resolve('')` is the working directory, so an unknown home would silently produce a pattern
+  // anchored somewhere plausible and wrong. A deny rule that looks right and protects nothing is
+  // the worst outcome this feature has, so it refuses instead.
+  if (home.trim() === '') {
+    throw new ConfigError('cannot write permission rules: no home directory is known');
+  }
   const dir = resolve(configDir);
   const root = resolve(home);
   const slashes = (path: string) => path.replaceAll(SEPARATOR, '/');

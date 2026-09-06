@@ -13,6 +13,7 @@
     "jsr:@std/path@^1.1.5": "1.1.6",
     "jsr:@std/path@^1.1.6": "1.1.6",
     "jsr:@std/testing@^1.0.20": "1.0.20",
+    "jsr:@std/yaml@1.2.0": "1.2.0",
     "jsr:@std/yaml@^1.2.0": "1.2.0",
     "npm:@modelcontextprotocol/server@2": "2.0.0",
     "npm:zod@^4.4.3": "4.4.3"

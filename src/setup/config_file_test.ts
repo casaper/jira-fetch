@@ -130,3 +130,15 @@ Deno.test('a long project path stays on one line', async () => {
     assertEquals((await readConfigFileIfPresent(path))?.project, long);
   });
 });
+
+Deno.test('the documented example is a valid configuration', async () => {
+  // The README points readers at docs/config-example.yml instead of carrying inline examples, so
+  // without this a drift between it and the Zod schema is a documentation bug with no detector.
+  const path = new URL('../../docs/config-example.yml', import.meta.url).pathname;
+  const config = await readConfigFileIfPresent(path);
+  assertEquals(typeof config?.project, 'string');
+  // Every credential a run needs, so someone working from it does not get told what is missing.
+  for (const key of ['baseUrl', 'email', 'token'] as const) {
+    assertEquals(typeof config?.[key], 'string', `${key} is missing from the example`);
+  }
+});

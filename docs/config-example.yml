@@ -16,6 +16,7 @@
 project: /home/you/code/thing
 
 baseUrl: https://your-site.atlassian.net
+email: you@example.com
 
 # There is no environment variable and no flag for this. A token here is one a shell in your
 # project does not inherit, which is the point: an exported token is one an agent can send to Jira

@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from '@std/assert';
 import { join } from '@std/path';
 import { ConfigError } from '../config/errors.ts';
 import { applyDenyRules, configDirPattern, denyTargets } from './claude_settings.ts';
@@ -136,4 +136,10 @@ Deno.test('an unparseable settings file stops the run instead of being overwritt
     assertStringIncludes(error.message, 'add these rules by hand');
     assertStringIncludes(await Deno.readTextFile(path), '// a comment');
   });
+});
+
+Deno.test('an unknown home directory is refused rather than resolved against the cwd', () => {
+  // `resolve('')` is the working directory. A deny rule anchored there would look plausible and
+  // protect nothing, which is the worst failure this feature has.
+  assertThrows(() => configDirPattern('/opt/jira-fetch', ''), ConfigError, 'no home directory');
 });
