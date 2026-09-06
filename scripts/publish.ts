@@ -7,15 +7,22 @@
  * has to be untangled by hand. Every step below is therefore idempotent up to the point of
  * creating the release, which is the one thing that refuses to happen twice.
  *
+ * The npm publish is a **second** such thing, and a harsher one: a version cannot be unpublished
+ * after 72 hours and can never be republished, so a bad shim in 0.5.1 is permanent and the fix is
+ * 0.5.2. That is why it runs last — everything freely repeatable has already succeeded by then —
+ * and why it skips what the registry already has rather than trying and failing.
+ *
  *   deno task publish
  */
 
 import { TARGETS } from './build_all.ts';
-import { git, run, succeeds } from './proc.ts';
+import { NPM_SCOPE, stage } from './npm_package.ts';
+import { git, output, run, succeeds } from './proc.ts';
 
 const DENO_JSON = 'deno.json';
 const ARGS_TS = 'src/cli/args.ts';
 const CHANGELOG = 'CHANGELOG.md';
+const NPM_DIST = 'dist/npm';
 
 export const VERSION_IN_JSON = /(?<=^ {2}"version": ")(?<version>\d+\.\d+\.\d+)(?=",$)/m;
 export const VERSION_IN_ARGS = /(?<=^export const VERSION = ')(?<version>\d+\.\d+\.\d+)(?=';$)/m;
@@ -61,7 +68,15 @@ const installSection = (): string => {
   return [
     '## Install',
     '',
-    'Self-contained binaries — no Deno installation needed.',
+    '```sh',
+    'npm install -g jira-fetch',
+    '```',
+    '',
+    'That fetches one prebuilt binary for your platform. The binary is self-contained — npm is',
+    'how it reaches you, not something it needs to run. `npx jira-fetch mcp` works too, if you',
+    'would rather not install anything.',
+    '',
+    'Or take a binary from the assets below. They need no Deno installation either.',
     '',
     '| Platform | File |',
     '| --- | --- |',
@@ -102,6 +117,31 @@ const writeChecksums = async (): Promise<string> => {
   return path;
 };
 
+/** Whether the registry already has that exact version.
+ *
+ * Compared against the printed version rather than the exit status on purpose: for a package that
+ * exists *without* this version, `npm view` exits 0 and prints nothing — so a `succeeds`-style
+ * probe would read a missing version as a published one, skip the publish, and report a release
+ * that never reached the registry. It would pass the first time, when everything still 404s. */
+const alreadyPublished = async (name: string, version: string): Promise<boolean> =>
+  await output('npm', 'view', `${name}@${version}`, 'version') === version;
+
+/** Stages and publishes the seven packages, in the order `stage` returns them: every platform
+ * package before the one that depends on them, so `jira-fetch` never sits on the registry with
+ * optional dependencies that cannot resolve. */
+const publishNpm = async (version: string): Promise<void> => {
+  const packages = await stage(version, NPM_DIST);
+  for (const pkg of packages) {
+    if (await alreadyPublished(pkg.name, version)) {
+      console.log(`  ${pkg.name}@${version} is already published`);
+      continue;
+    }
+    console.log(`  ${pkg.name}@${version}`);
+    // Scoped packages default to restricted, which would publish something nobody can install.
+    await run('npm', 'publish', '--access', 'public', pkg.dir);
+  }
+};
+
 /** The checks that depend on nothing but this machine, so `release.ts` can run them *before* it
  * bumps and tags. Discovering a missing `gh` after the tag exists is a mess to unpick. */
 export const assertCanPublish = async (): Promise<void> => {
@@ -109,6 +149,17 @@ export const assertCanPublish = async (): Promise<void> => {
     fail('the GitHub CLI is not installed: https://cli.github.com');
   }
   if (!await succeeds('gh', 'auth', 'status')) fail('not logged in to GitHub: run `gh auth login`');
+
+  // Checked on output, not on exit status: being logged in as somebody else also exits 0, and the
+  // platform packages can only be published by whoever owns the scope they are named after.
+  const who = await output('npm', 'whoami');
+  if (who === null) fail('not logged in to npm: run `npm login`');
+  if (who !== NPM_SCOPE) {
+    fail(
+      `npm says you are "${who}", but the platform packages publish under @${NPM_SCOPE};\n` +
+        `  log in as ${NPM_SCOPE}, or change NPM_SCOPE in scripts/npm_package.ts`,
+    );
+  }
 };
 
 export const publish = async (version: string): Promise<void> => {
@@ -160,6 +211,10 @@ export const publish = async (version: string): Promise<void> => {
   } finally {
     await Deno.remove(notesFile);
   }
+
+  // Last, and deliberately: everything above can be re-run, and this cannot be undone.
+  console.log(`\npublishing ${TARGETS.length + 1} packages to npm...`);
+  await publishNpm(version);
 };
 
 if (import.meta.main) {
