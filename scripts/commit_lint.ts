@@ -27,6 +27,7 @@ export const TYPES = {
 /** Optional scopes: one per module in the layout, plus the cross-cutting ones. */
 export const SCOPES = [
   'config',
+  'cache',
   'cli',
   'jira',
   'filter',

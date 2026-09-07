@@ -17,6 +17,7 @@ export type {
   AdfNode,
   AdfNodeType,
   AttrsOf,
+  FieldMetadata,
   JiraAttachment,
   JiraComment,
   JiraCommentPage,
@@ -24,6 +25,8 @@ export type {
   JiraIssueBean,
   JiraSearchPage,
   JiraUser,
+  ProjectDetails,
+  StatusDetails,
 } from './schema_types.ts';
 
 /** A bare reference to another issue — a parent, or one of a parent's subtasks.
@@ -101,3 +104,41 @@ export type AssetEntry = {
 };
 
 export type AssetManifest = Map<string, AssetEntry>;
+
+/**
+ * Something with a name and usually an id: a component, a version, a priority, an issue type.
+ *
+ * Hand-written because these are the parts of a project the cache offers as menu choices, and the
+ * pruned specification carries none of them — its 30-schema closure is what an *issue* payload
+ * reaches, and a project's component list is not on that path. Only the two properties a menu needs
+ * are declared; the responses carry more, and reading more would invite depending on it.
+ */
+export type NamedRef = {
+  id?: string;
+  name?: string;
+};
+
+/**
+ * A board, from the Agile API.
+ *
+ * `/rest/agile/1.0/` is a different API family from the `/rest/api/3/` platform one, and it is not
+ * in `spec/` at all — `deno task vendor:spec` fetches the platform document and the ADF schema, and
+ * `scripts/gen_types.ts` throws on anything it does not recognise rather than weakening a type. So
+ * these two are declared here, for the same reason `JiraIssueFields` is.
+ */
+export type AgileBoard = {
+  id: number;
+  name: string;
+  type?: string;
+};
+
+/** A sprint. `state` is `future`, `active` or `closed`, but it is typed open: a value this tool
+ * does not know is still worth offering as a filter choice. */
+export type AgileSprint = {
+  id: number;
+  name: string;
+  state?: string;
+  startDate?: string;
+  endDate?: string;
+  originBoardId?: number;
+};

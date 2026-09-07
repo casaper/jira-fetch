@@ -56,10 +56,15 @@ against a fake Jira on localhost (`test/fake_jira.ts`), and `test/mcp_test.ts` d
 against the same one. That is what covers the wiring in `src/main.ts`.
 
 Sealing it is deliberate and it is fragile in one specific way. `run(argv, deps)` takes
-`projectRoot` and `configDir`, and when both are given they are used verbatim — no walk for `.git`,
-no `$HOME`. **Any new entry point that calls `run` from a test must pass both**, or the run works
-out which repository it is in and reads your real configuration, token included. Nothing asserts the
-token, so a leak would not turn the suite red; it would just quietly stop being hermetic.
+`projectRoot`, `configDir` and `cacheDir`, and when they are given they are used verbatim — no walk
+for `.git`, no `$HOME`. **Any new entry point that calls `run` from a test must pass all three**, or
+the run works out which repository it is in and reads your real configuration, token included.
+Nothing asserts the token, so a leak would not turn the suite red; it would just quietly stop being
+hermetic.
+
+`cacheDir` is the one with a second failure mode. A cache hit is a request that does not happen, so
+an unpinned cache makes the request-count assertions — "this was never fetched" — depend on what ran
+before them, and on what is in your own `~/.cache/jira-fetch/`.
 
 `deno task verify:filters` is the complement and is deliberately **outside** that suite: it runs a
 table of allow/deny/both scenarios against your real Jira site, works out what each one should keep

@@ -14,8 +14,10 @@ Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
 USAGE
   jira-fetch <ISSUE-KEY>...     fetch one or more issues by key
   jira-fetch --jql "<JQL>"      fetch every issue matching a query
-  jira-fetch setup              configure this project, interactively
+  jira-fetch setup              configure this project: credentials, output, people
+  jira-fetch filters            choose which tickets are fetched, from what your site has
   jira-fetch config-file        print the path of this project's config file
+  jira-fetch cache <KEY>...     read what your Jira projects contain, for the menus
   jira-fetch mcp                run as an MCP server; see jira-fetch help mcp
   jira-fetch help [<command>]   this help, or one command's
 
@@ -28,6 +30,11 @@ OPTIONS
       --mcp-help       show the MCP server help
       --version        show the version
 
+  for jira-fetch cache:
+      --refresh        read everything again, however recently it was read
+      --show           report what is cached and how old it is; read nothing
+      --clear          delete this project's cache
+
 CONFIGURATION
   One YAML file per project holds the credentials and the filters that decide which
   tickets are fetched:
@@ -37,6 +44,16 @@ CONFIGURATION
 
   The name comes from the git repository you are in, so there is nothing to pass and
   jira-fetch runs only inside one. Run jira-fetch setup to create it.
+
+  What your Jira site contains — labels, fields and the values they accept, people,
+  components, versions, sprints — is cached beside it, so a filter can be built from
+  what exists rather than from memory:
+
+    ~/.cache/jira-fetch/<hash>/                 macOS and Linux
+    %APPDATA%\\jira-fetch\\cache\\<hash>\\          Windows
+
+  It refreshes itself when it ages out. jira-fetch cache --show reports it, and
+  --clear deletes it; nothing there is anything a fresh read cannot produce again.
 
 OUTPUT
   <out>/<ISSUE-KEY>.md    the document (overwritten if it already exists)
@@ -75,6 +92,9 @@ THE GUARANTEE, AND ITS LIMIT
   This is not a sandbox: the server runs as you, and so does the agent's shell. The
   only hard boundary is what the API token may see on Atlassian's side, so use one
   whose account cannot reach what you do not want read.
+
+  That policy is built by jira-fetch filters, from the projects, labels and fields
+  your site actually has.
 
   jira-fetch setup offers Claude Code deny rules for the config directory. They stop
   the well-behaved path and nothing more.

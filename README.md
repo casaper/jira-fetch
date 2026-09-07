@@ -52,11 +52,15 @@ no environment variables, no flags, no config file in the project. `jira-fetch` 
 inside a repository. [The MCP server](#mcp-server) is why it works this way.
 
 ```sh
-jira-fetch setup          # create or change it, interactively
+jira-fetch setup          # credentials, output folder, people
+jira-fetch filters        # which tickets are fetched
 jira-fetch config-file    # print its path, whether or not it exists yet
 ```
 
-`setup` asks for each setting and explains what it is for, including where to create an API token.
+`setup` asks for your site, your account email and an API token — including where to create one —
+and checks them against Jira before writing anything. Once they work, it shows a form with the rest
+of the settings and their current values, so you change what you care about and leave the rest.
+
 To edit the file by hand afterwards:
 
 ```sh
@@ -72,6 +76,29 @@ email: you@example.com
 token: ATATT3xFfGF0...
 ```
 
+### What your Jira site contains
+
+Filters are easier to write when you can see what there is to filter on, so `jira-fetch` keeps a
+copy of your projects' labels, fields and the values they accept, issue types, statuses, components,
+versions, sprints and people:
+
+```sh
+jira-fetch cache DN SUP     # read those projects; they are remembered for next time
+jira-fetch cache            # read whatever has gone out of date
+jira-fetch cache --show     # what is cached, and how old
+jira-fetch cache --clear    # delete it
+```
+
+|              |                                      |
+| ------------ | ------------------------------------ |
+| macOS, Linux | `~/.cache/jira-fetch/<hash>/`        |
+| Windows      | `%APPDATA%\jira-fetch\cache\<hash>\` |
+
+It refreshes itself as it ages, so there is nothing to run on a schedule. Anything it could not read
+— a project you cannot create issues in, a site with no Agile boards, a token without permission for
+some of it — is recorded as unreadable rather than as empty, and `--show` says which. Nothing in
+there is anything a fresh read cannot produce again, so deleting it is always safe.
+
 ## Usage
 
 ```
@@ -79,7 +106,9 @@ jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
 jira-fetch --jql "<JQL>"           fetch every issue matching a query
 jira-fetch mcp                     serve the same pipeline over MCP (see below)
 jira-fetch setup                   configure this project, interactively
+jira-fetch filters                 choose which tickets are fetched
 jira-fetch config-file             print the path of this project's config file
+jira-fetch cache <KEY>...          read what your Jira projects contain
 
   -o, --out <dir>      output directory (default: current directory)
   -n, --dry-run        report what would be fetched and filtered; write nothing
@@ -87,12 +116,14 @@ jira-fetch config-file             print the path of this project's config file
 ```
 
 Exit codes: `0` success · `1` runtime error · `2` usage or config error · `3` nothing written
-because every issue was excluded by a filter.
+because every issue was excluded by a filter. An interactive menu left with Ctrl+C exits `130`.
 
 ## Filters
 
 Filters decide which tickets are fetched at all, and which comments make it into the document.
-`jira-fetch setup` walks through them;
+`jira-fetch filters` builds them by picking from what your site actually has — its labels,
+statuses, components, versions, sprints, people, and the values each custom field accepts — so you
+are choosing from a list rather than typing from memory.
 [`docs/config-example.yml`](https://github.com/casaper/jira-fetch/blob/main/docs/config-example.yml)
 shows every option in one file.
 
@@ -228,7 +259,9 @@ clear if that matters to you.
   "permissions": {
     "deny": [
       "Read(~/.config/jira-fetch/**)",
-      "Edit(~/.config/jira-fetch/**)"
+      "Edit(~/.config/jira-fetch/**)",
+      "Read(~/.cache/jira-fetch/**)",
+      "Edit(~/.cache/jira-fetch/**)"
     ]
   }
 }
@@ -239,14 +272,18 @@ clear if that matters to you.
 { "permissions": { "deny": ["Bash(jira-fetch setup:*)"] } }
 ```
 
-The config-directory rules go at **user** scope deliberately: a deny at any scope beats an allow at
-any other, so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob` and
-the file reads Claude Code recognises inside Bash. `setup` merges them into whatever is already in
-those files and adds nothing on a second run — and it refuses to run without a terminal, which an
-agent's shell does not have.
+Both directories go at **user** scope deliberately: a deny at any scope beats an allow at any other,
+so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob` and the file
+reads Claude Code recognises inside Bash. `setup` merges them into whatever is already in those
+files and adds nothing on a second run — and it refuses to run without a terminal, which an agent's
+shell does not have.
+
+The configuration directory holds your token. The cache beside it holds no credentials, but it does
+hold every person your projects can assign to, and the field list in it takes part in deciding which
+field a `field:` filter means.
 
 These stop the well-behaved path and are worth having for that, but they do not reach a script that
-opens the file itself, and an agent with a shell can edit the settings files too.
+opens either file itself, and an agent with a shell can edit the settings files too.
 
 </details>
 

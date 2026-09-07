@@ -8,15 +8,8 @@ import {
 import { fromFileUrl, join } from '@std/path';
 import { ConfigError } from '../config/errors.ts';
 import { loadProjectConfig } from '../config/config.ts';
-import {
-  DIR_MODE,
-  FILE_MODE,
-  readConfigFileIfPresent,
-  repairMode,
-  writeConfigFile,
-} from './config_file.ts';
-
-const POSIX = Deno.build.os !== 'windows';
+import { readConfigFileIfPresent, writeConfigFile } from './config_file.ts';
+import { DIR_MODE, FILE_MODE, POSIX, repairMode } from '../util/modes.ts';
 
 const withTemp = async (fn: (dir: string) => Promise<void>): Promise<void> => {
   const dir = await Deno.makeTempDir();

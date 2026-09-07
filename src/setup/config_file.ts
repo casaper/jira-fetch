@@ -5,30 +5,10 @@ import { dirname } from '@std/path';
 import { parse as parseYaml, stringify as stringifyYaml } from '@std/yaml';
 import { ConfigError } from '../config/errors.ts';
 import { type ConfigFile, parseConfigFile } from '../config/schema.ts';
-
-/** Owner-only, on both counts. The directory needs `x` to be traversed at all; the file does not,
- * and an execute bit on a YAML document would say something untrue about it. */
-export const DIR_MODE = 0o700;
-export const FILE_MODE = 0o600;
-
-/** Windows has no POSIX modes, and `Deno.chmod` refuses there. It also needs none: everything
- * under %APPDATA% already inherits an ACL granting only that user, SYSTEM and Administrators. */
-const POSIX = Deno.build.os !== 'windows';
+import { DIR_MODE, FILE_MODE, repairMode } from '../util/modes.ts';
 
 const SCHEMA_URL =
   'https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json';
-
-/** Applies the intended mode to something that already exists. Creating with `mode` covers the
- * new-file case; this covers a file or directory made before, or by hand. */
-export const repairMode = async (path: string, mode: number): Promise<void> => {
-  if (!POSIX) return;
-  try {
-    const info = await Deno.stat(path);
-    if (((info.mode ?? mode) & 0o777) !== mode) await Deno.chmod(path, mode);
-  } catch (cause) {
-    if (!(cause instanceof Deno.errors.NotFound)) throw cause;
-  }
-};
 
 /**
  * Writes a project's config file, owner-readable and no wider.

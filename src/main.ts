@@ -5,10 +5,14 @@ import { type Args, parseCliArgs, UsageError, VERSION } from './cli/args.ts';
 import { HELP, MCP_HELP } from './cli/help.ts';
 import { type Config, ConfigError, loadProjectConfig, resolveConfig } from './config/config.ts';
 import { configPathFor, findProjectRoot, userConfigDir } from './config/location.ts';
+import { cacheDirFor, userCacheDir } from './cache/location.ts';
+import { cachedFieldSource } from './cache/fields.ts';
+import { runCache } from './cache/command.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 import { serveMcp } from './mcp/server.ts';
 import { runSetup } from './setup/tui.ts';
+import { runFilterSetup } from './setup/filter_tui.ts';
 import { dirname } from '@std/path';
 
 /** Whether a path is there, without caring why not — a permission error is still "no file to
@@ -79,7 +83,13 @@ function report(outcome: Outcome, tally: Tally): void {
  * included. Nothing asserts the token, so the leak would not turn the suite red; it would just
  * quietly stop being hermetic.
  *
- * Any new entry point that calls `run` from a test must pass both `projectRoot` and `configDir`.
+ * The metadata cache is a third derived path with the same hazard, and `fetch` mode *writes* to
+ * it: an unsealed test reads and writes the developer's real `~/.cache/jira-fetch/`, and because a
+ * cache hit means a request that does not happen, it also makes request-count assertions depend on
+ * what ran before.
+ *
+ * Any new entry point that calls `run` from a test must pass `projectRoot`, `configDir` **and
+ * `cacheDir`**.
  */
 export type RunDeps = {
   cwd?: string;
@@ -87,6 +97,8 @@ export type RunDeps = {
   projectRoot?: string;
   /** When given, used **verbatim**: `$HOME` and `%APPDATA%` are never consulted. */
   configDir?: string;
+  /** When given, used **verbatim**: neither `$HOME` nor the project root is hashed. */
+  cacheDir?: string;
 };
 
 export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> => {
@@ -115,16 +127,30 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   const cwd = deps.cwd ?? Deno.cwd();
 
   let config: Config;
+  let cacheDir: string;
+  let projectRoot: string;
   try {
-    const projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
+    projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
     const filePath = configPathFor(projectRoot, deps.configDir ?? userConfigDir());
+    cacheDir = deps.cacheDir ?? await cacheDirFor(projectRoot, userCacheDir());
 
     if (args.mode === 'setup') {
       return await runSetup({
         configPath: filePath,
         configDir: dirname(filePath),
+        cacheDir,
         projectRoot,
         home: Deno.env.get('HOME') ?? Deno.env.get('USERPROFILE') ?? '',
+      });
+    }
+
+    if (args.mode === 'filters') {
+      // Before `resolveConfig`, because this menu needs the raw ConfigFile to merge and write —
+      // a resolved Config has already dropped the keys it does not use.
+      return await runFilterSetup({
+        configPath: filePath,
+        projectRoot,
+        cacheDir,
       });
     }
 
@@ -164,6 +190,33 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
     token: config.token,
   };
 
+  if (args.mode === 'cache') {
+    // The report goes to stderr so stdout carries only the directory, which is what a script
+    // wants: `ls "$(jira-fetch cache --show)"`.
+    return await runCache({
+      action: args.cacheAction,
+      projects: args.cacheProjects,
+      cacheDir,
+      project: projectRoot,
+      baseUrl: config.baseUrl,
+      client: new JiraClient(clientOptions),
+      now: () => Date.now(),
+      out: (line) => console.log(line),
+      note: (line) => console.error(line),
+    });
+  }
+
+  /** The catalogue both remaining modes resolve `field:` predicates through. */
+  const fieldSource = (client: JiraClient) =>
+    cachedFieldSource({
+      client,
+      cacheDir,
+      project: projectRoot,
+      baseUrl: config.baseUrl,
+      now: () => Date.now(),
+      log,
+    });
+
   if (args.mode === 'mcp') {
     // The protocol owns stdout from here: one stray line corrupts the JSON-RPC stream and the
     // session dies far from its cause. `src/fetch/session.ts` is what actually prevents that — it
@@ -178,7 +231,10 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
 
     const client = new JiraClient(clientOptions);
     try {
-      await serveMcp(await createSession({ config, client, log }), config);
+      await serveMcp(
+        await createSession({ config, client, log, fields: fieldSource(client) }),
+        config,
+      );
     } catch (cause) {
       // A policy that does not resolve is not a server that should start: it would offer an agent
       // whatever the broken rule failed to deny.
@@ -201,7 +257,13 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   const tally: Tally = { written: 0, excluded: 0, errors: 0 };
 
   try {
-    const session = await createSession({ config, client, log, dryRun: args.dryRun });
+    const session = await createSession({
+      config,
+      client,
+      log,
+      dryRun: args.dryRun,
+      fields: fieldSource(client),
+    });
 
     for await (const key of candidateKeys(args, session)) {
       try {

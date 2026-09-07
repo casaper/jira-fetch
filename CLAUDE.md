@@ -17,7 +17,9 @@ way when adding one; the shipped binaries already embed Deno and V8.
 ```sh
 deno task dev DN-1243 --out tmp      # run from source (no `--`: deno forwards it literally)
 deno task dev config-file             # which config file a run in this repo would read
+deno task dev cache DN                # read a Jira project's metadata into the cache
 deno task dev setup                   # the interactive menu (needs a real terminal)
+deno task dev filters                 # the filter menu (needs a real terminal)
 deno task mcp                         # the MCP server from source, on stdio
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
 deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
@@ -55,7 +57,14 @@ unsealed run works out which git repository it is in and reads
 `$HOME/.config/jira-fetch/Users_<you>_code_jira-fetch.yml`, which is this repository's real
 configuration, token included. Nothing asserts the token, so a leak would not turn the suite red;
 it would just quietly stop being hermetic. **Any new entry point that calls `run` from a test must
-pass both.**
+pass `projectRoot`, `configDir` and `cacheDir`.**
+
+`cacheDir` is the third one and it fails in a second way as well. A cache hit is a request that does
+not happen, so an unpinned cache makes the request-economy assertions — "this was never fetched" —
+depend on what ran before them and on what is in the developer's own `~/.cache/jira-fetch/`. Two
+tests in `test/e2e_test.ts` would go quietly wrong rather than red: one calls `runWith` twice inside
+a single test, and one asserts a `/rest/api/3/field` request count that a leftover entry satisfies
+with zero requests.
 
 The same file is why **`deno task dev` is live-fire in this repo**: it resolves the real
 configuration for this checkout, so it talks to the real site.
@@ -178,8 +187,8 @@ type(scope)!: subject
 
 - Types and their changelog headings are declared together in `scripts/commit_lint.ts`; adding a
   type there is the only edit needed for it to appear in the changelog.
-- Scopes are optional and come from the layout: `config`, `cli`, `jira`, `filter`, `adf`, `assets`,
-  `document`, `schema`, `scripts`, `deps`, `release`.
+- Scopes are optional and come from the layout: `config`, `cache`, `cli`, `jira`, `filter`, `fetch`,
+  `adf`, `assets`, `document`, `mcp`, `setup`, `schema`, `scripts`, `deps`, `release`.
 - Header ≤ 72 characters, imperative, lower-case, no trailing period. Bodies wrap at 100 to match
   `.editorconfig`, and long unbreakable tokens (URLs, paths) are exempt.
 - **The convention governs the subject line only.** This project's commit bodies explain _why_, at
@@ -358,10 +367,12 @@ standalone `deno task publish` is still checked.
 src/main.ts             orchestration; owns the exit codes and the mode dispatch
 src/cli/args.ts         flag parsing
 src/cli/help.ts         the two help pages, the CLI's and the MCP server's
+src/cache/              the Jira metadata cache: paths, schemas, TTLs, degradation
+src/util/modes.ts       the owner-only file and directory modes both writers use
 src/config/schema.ts    Zod schemas — the single source of truth (see below)
 src/config/location.ts  where a project's config file is — git root, slug, config dir
 src/config/config.ts    reading and resolving that one file
-src/setup/              the `setup` menu, the config writer, the Claude Code deny rules
+src/setup/              the two menus, the config writer, the Claude Code deny rules
 src/jira/client.ts      auth, retry, and every REST call
 src/filter/rules.ts     compiles validated rules into their runtime form
 src/filter/evaluate.ts  the three filter stages
@@ -444,9 +455,72 @@ Those three variables locate the config directory and are the only environment r
 narrowing can only fail at runtime, so the subprocess test in `test/mcp_test.ts` runs the real
 server under exactly that set — keep it in step with `PERMISSIONS` and `deno.json`.
 
+## The metadata cache
+
+`jira-fetch cache` reads what a project's Jira contains — labels, fields and the values they
+accept, issue types, statuses, priorities, components, versions, sprints, assignable people — into
+`$HOME/.cache/jira-fetch/<sha1-12 of the project root>/` (`%APPDATA%\jira-fetch\cache\` on
+Windows). `src/cache/location.ts` mirrors `src/config/location.ts`, purity constraint included: it
+joins with the separator of the `os` it was **asked about**, and it does not resolve its argument,
+so the caller passes what `findProjectRoot` returned.
+
+**No permission widened for it, and that was a design constraint rather than luck.** `--allow-read`
+and `--allow-write` are unscoped already, and `HOME`/`APPDATA` are in `--allow-env`, so
+`PERMISSIONS`, both `deno.json` tasks and `test/mcp_test.ts`'s permission array are untouched.
+`%LOCALAPPDATA%` is where a cache belongs on Windows and is deliberately not used: it is not in
+`--allow-env`, and widening that to spare a directory of regenerable JSON from roaming-profile sync
+is not a trade worth four files moving in lockstep. `$XDG_CACHE_HOME` is ignored for the same reason
+`userConfigDir` ignores `$XDG_CONFIG_HOME`.
+
+**A resource that could not be read is never written as fresh and empty.** Every entry carries a
+`state` of `ok` or `partial` and a list of note codes, the envelope schema refuses a `partial` with
+no notes, and `writeEntry` downgrades an empty `ok` to `partial`/`noneVisible` for the resources
+where nothing is implausible — projects, fields, people. Otherwise a token that can see nothing
+would be indistinguishable from a site that contains nothing, which is the same shape of trap as a
+probe that checks an exit status instead of its output. `src/cache/metadata.ts` owns the mapping
+from a Jira failure to a note, and `src/cache/report.ts` turns each note into a phrase, because a
+count with no reason beside it lets a short list read as a complete one.
+
+**Nothing in `src/cache/` throws for a Jira failure, and no read throws at all.** An absent,
+unreadable, corrupt, mispinned or stale entry is a `MissReason` that refetches live. A failure to
+_write_ does throw from `metadata.ts`, because that is a broken directory rather than a resource the
+token cannot see — but `src/cache/fields.ts` swallows it, since a read-only home directory is a
+reason for a fetch to be slower and not a reason for it to fail.
+
+Every entry is pinned to the project root **and** the `baseUrl`. The first mirrors
+`assertProjectMatches`; the second is why a repository repointed at a second Jira site does not read
+the first site's field ids as fresh.
+
+**The cache serves every mode, `fetch` and `mcp` included, and that is a deliberate trade with a
+cost.** A TTL bounds staleness, not tampering: the cache is outside the config directory, so
+`setup`'s deny rules are a speed bump rather than a boundary, and an agent with a shell can rewrite
+an entry and its timestamp. Two things narrow it and neither closes it. Only the **raw** `/field`
+list is cached, never a resolved name-to-id map, so `makeFieldResolver` rebuilds its maps every run
+and the ambiguity check still fires — an edit can add or remove fields but cannot quietly redirect a
+`field:` predicate. And `src/cache/fields.ts` is the only module on the fetch path that touches the
+cache at all, so the surface is one file. **Do not cache the resolved map as an optimisation**; that
+is the edit that would give the whole thing away.
+
+`jira-fetch cache` takes project keys and is the one subcommand with positional arguments. It is
+deliberately non-interactive: a command that can be scripted is also one the e2e suite can drive end
+to end. With no keys it reuses the manifest's selection, and with neither it says so rather than
+reading every project the token can see.
+
 ## Setup writes files outside the repository, and only when asked
 
-`src/setup/` has three parts, split so that the two that can be tested are.
+`src/setup/` is split so that everything testable is tested and the two menus stay thin.
+`prompts.ts` is the **only** module in the tree that imports `@cliffy/prompt`; everything above
+it passes plain data and gets a typed answer back, so swapping the library is one file.
+
+| module                                  | kind                                                               |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `config_file.ts`, `claude_settings.ts`  | I/O, fully tested                                                  |
+| `verify.ts`                             | the credential probe, injected `fetch`, fully tested               |
+| `form.ts`                               | the setup form as data — rows, values, validators — pure           |
+| `filter_draft.ts`                       | choices ↔ `TicketRule` ↔ `FiltersConfig` — pure                    |
+| `filter_render.ts`                      | rules as prose, metadata as choice lists — pure                    |
+| `metadata.ts`                           | the cache read into what a menu offers — tested against a temp dir |
+| `prompts.ts`, `tui.ts`, `filter_tui.ts` | the cliffy layer — thin, untested                                  |
 
 - **`config_file.ts`** composes and writes the config: validated through the loader's own
   `parseConfigFile`, so `setup` cannot produce a file the tool would refuse. Modes are passed at
@@ -458,18 +532,50 @@ server under exactly that set — keep it in step with `PERMISSIONS` and `deno.j
   rules, and refuses to rewrite a file it could not parse, naming the rules to add by hand instead.
   Config-directory denies go to `~/.claude/settings.json` (user scope, because a deny at any scope
   beats an allow at any other, and one write covers every project); the `setup` deny goes in the
-  project so a teammate sees it.
-- **`tui.ts`** is the menu, and is kept thin because a menu cannot be driven by the suite. It
-  refuses without `Deno.stdin.isTerminal()` — an agent's shell has no controlling terminal, which
-  is a real barrier at zero permission cost and **not** a boundary; say so rather than implying
-  otherwise. It spawns nothing: "open it in your editor" would cost `--allow-run` in every binary,
-  the MCP server included, so it prints the path.
+  project so a teammate sees it. The **cache** directory gets its own pair of rules at user scope:
+  it is outside the config directory so the config pattern does not reach it, it holds a project's
+  whole assignable-user list, and its field list takes part in resolving `field:` predicates.
+- **`tui.ts`** and **`filter_tui.ts`** are the menus, kept thin because a menu cannot be driven by
+  the suite. Both refuse without `Deno.stdin.isTerminal()` — an agent's shell has no controlling
+  terminal, which is a real barrier at zero permission cost and **not** a boundary; say so rather
+  than implying otherwise. Neither spawns anything: "open it in your editor" would cost
+  `--allow-run` in every binary, the MCP server included, so the path is printed.
+  `filter_tui.ts` loads through `loadProjectConfig` rather than a bare read, so
+  `assertProjectMatches` runs: `projectSlug` is not injective, and rewriting a file that declares
+  another project would clobber somebody else's rules.
 
 Only `setup` writes any of this. `fetch` and `mcp` must never touch Claude Code configuration — a
 Jira fetcher rewriting permission files on every run would fight the user's own edits.
 
-`space` is `promptSelect`'s selection key, so a scripted pty test cannot use a filter string
-containing one. That cost an hour; it is written down here so it costs nobody else one.
+`space` is `Checkbox`'s check key, so a scripted pty test cannot use a filter string containing
+one. That cost an hour once; it is written down here so it costs nobody else one.
+
+**Ctrl+C inside a prompt is `Deno.exit(130)`, not a throw** (`@cliffy/prompt`'s
+`_generic_prompt.ts`). Nothing above it runs: no `finally`, no cleanup line, and
+`Deno.exit(await run())` in `src/main.ts` never executes, so 130 bypasses the exit-code contract
+entirely. Raw mode without `cbreak` also suppresses `ISIG`, so no `SIGINT` arrives either — cliffy's
+key handler is the only interrupt path.
+
+That decides the save model, and it is why `setup` writes twice. Credentials go to disk the moment
+they verify; the rest goes on Save. A form that accumulated every answer and wrote once at the end
+would lose all of it to one keystroke, silently, including the token just typed. Do not "simplify"
+it into a single write.
+
+Terminal sanity is cliffy's own doing — it drops raw mode after every read and shows the cursor in a
+`finally` of its own — so **add no signal handling here**; it could only make that worse. The
+ordering that matters is ours: the terminal check and the path resolution happen before the first
+prompt, so a permission failure lands on a cooked terminal. Verified with
+`deno run --allow-net --allow-read --allow-write --deny-env src/main.ts setup`, which fails in
+`userConfigDir` before anything is drawn.
+
+**`@cliffy/prompt` needs no permission beyond the four baked in, and that was checked rather than
+assumed.** It brings `@cliffy/ansi`, `@cliffy/internal` and `@cliffy/keycode` — first-party
+siblings from the same MIT repo — plus `@std/io` and `@std/text`, and no npm packages. The near-miss
+worth recording: `@std/fmt/colors` decides colour from `Deno.noColor`, a **property**, not by
+reading `NO_COLOR`; had it read the variable, every prompt would throw under
+`--allow-env=HOME,APPDATA,USERPROFILE`. `Deno.consoleSize` throws without a terminal but throws a
+plain `Error`, which cliffy catches. `Input({ files: true })` is the one option that reaches
+`readDir` and is therefore never used.
 
 ## Zod is the single source of truth for configuration
 
@@ -588,6 +694,14 @@ the ids, and a raw id always resolves unambiguously. Do not soften this back int
 grounds that a config might be shared across sites — the same block is what an agent's access is
 decided by.
 
+**It checks the live field list once before it refuses.** The catalogue it resolves against comes
+from the cache, and a field renamed on the site since that entry was written reads as one that does
+not exist — so refusing on the first answer would be refusing on an artefact. One request, on the
+error path only, and it is what earns the right to refuse rather than warn. The opposite direction
+cannot be repaired this way and is the accepted residual: a _second_ field created with the same
+display name makes a name newly ambiguous, and a stale catalogue resolves it happily where a live
+run would refuse. The six-hour TTL on `fields` is the only thing bounding that.
+
 `field` predicates reach **built-in** fields too, since `GET /rest/api/3/field` lists them:
 `Status`, `Issue Type`, `Components`, `Priority` and so on all work, which is why there are no
 separate `type`/`status` predicates. `deno task verify:filters` exercises exactly that against the
@@ -678,6 +792,25 @@ needed the CLI binary would carry too.
   equivalent to running singles in a row. Do not reach for `fields=*all` here.
 - `GET /rest/api/3/field` — resolves a human field name ("Team") to its `customfield_NNNNN` id.
   Called at most once per run, and only when a `field` predicate exists.
+- **A custom field's accepted values come from `createmeta`, not from the field-context API.**
+  `/rest/api/3/field/{id}/context/{ctx}/option` needs the **Administer Jira** global permission, so
+  it is unusable for an ordinary token. `GET /rest/api/3/issue/createmeta/{key}/issuetypes` and then
+  `/issuetypes/{id}` need only Browse Projects and Create Issues, and return per-field
+  `allowedValues`. They are per issue type, so the values are unioned across a project's types.
+- **`/rest/api/3/jql/autocompletedata/suggestions` caps at 15 results.** It needs no permission at
+  all, which makes it tempting, but a 15-item answer is a typeahead and not a list of what exists.
+- **`GET /rest/api/3/label` is site-wide.** Jira has no per-project label list.
+- **Statuses have no `createmeta` representation** — a status is not something an issue is created
+  with — so `GET /rest/api/3/project/{key}/statuses` is their only source. It returns them grouped
+  by issue type, and the same status repeats across groups.
+- **`/project/{key}/version` pages; `/project/{key}/versions` returns the lot and ignores
+  `startAt`.** Components have the same singular/plural pair. Picking the wrong member reads as a
+  working call that silently drops everything past the first page.
+- **Sprints are the Agile API** (`/rest/agile/1.0/board?projectKeyOrId=`, then
+  `/board/{id}/sprint`), a different family that is **not** in the vendored `spec/`. Its types are
+  hand-written in `src/jira/types.ts`, the `JiraIssueFields` precedent. A site without Jira Software
+  answers 404 from `/board`, and a **Kanban board answers 400** from its sprint endpoint because it
+  has no sprints.
 - **Siblings are not a Jira field.** They come from the parent's subtasks via
   `GET /rest/api/3/issue/{parentKey}?fields=subtasks` — one plain GET, deliberately not a JQL
   `parent = ...` search, which would need the search endpoint and would be awkward when a config

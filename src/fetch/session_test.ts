@@ -199,3 +199,127 @@ Deno.test('a raw field id resolves even when its display name is ambiguous', asy
     assertEquals((await session.fetch('DN-1243')).status, 'written');
   });
 });
+
+/** A catalogue source whose two answers can differ, which is the whole point of there being two. */
+const twoAnswers = (
+  stale: Array<{ id: string; name: string }>,
+  live: Array<{ id: string; name: string }>,
+) => {
+  let refreshes = 0;
+  return {
+    source: {
+      get: () => Promise.resolve(stale),
+      refresh: () => {
+        refreshes++;
+        return Promise.resolve(live);
+      },
+    },
+    refreshes: () => refreshes,
+  };
+};
+
+const sessionWith = async (
+  fields: {
+    get: () => Promise<Array<{ id: string; name: string }>>;
+    refresh: () => Promise<Array<{ id: string; name: string }>>;
+  },
+  filters: FiltersConfig,
+  fn: (logged: string[]) => Promise<void> | void,
+): Promise<void> => {
+  const fake = await startFakeJira();
+  const out = await Deno.makeTempDir();
+  const logged: string[] = [];
+  try {
+    const config = configFor(fake, out, filters);
+    await createSession({
+      config,
+      client: new JiraClient({ baseUrl: config.baseUrl, email: config.email, token: config.token }),
+      log: (m) => logged.push(m),
+      fields,
+    });
+    await fn(logged);
+  } finally {
+    await fake.stop();
+    await Deno.remove(out, { recursive: true });
+  }
+};
+
+const TEAM_FILTER: FiltersConfig = { include: [{ field: { Team: ['Platform'] } }] };
+
+Deno.test('a stale catalogue does not manufacture an unresolvable field', async () => {
+  // A field renamed on the site since the catalogue was written reads as one that does not exist.
+  // Refusing on that would be refusing on an artefact, so the live list decides.
+  const { source, refreshes } = twoAnswers(
+    [{ id: 'customfield_1', name: 'Squad' }],
+    [{ id: 'customfield_1', name: 'Team' }],
+  );
+  await sessionWith(source, TEAM_FILTER, (logged) => {
+    assertEquals(refreshes(), 1);
+    assert(logged.some((line) => line.includes('checking the live field list')));
+  });
+});
+
+Deno.test('a name the live catalogue does not have either is still a config error', async () => {
+  const { source, refreshes } = twoAnswers(
+    [{ id: 'customfield_1', name: 'Squad' }],
+    [{ id: 'customfield_1', name: 'Squad' }],
+  );
+  const fake = await startFakeJira();
+  const out = await Deno.makeTempDir();
+  try {
+    const config = configFor(fake, out, TEAM_FILTER);
+    await assertRejects(
+      () =>
+        createSession({
+          config,
+          client: new JiraClient({
+            baseUrl: config.baseUrl,
+            email: config.email,
+            token: config.token,
+          }),
+          log: () => {},
+          fields: source,
+        }),
+      ConfigError,
+      'does not exist on this site',
+    );
+    // Once, not in a loop: the retry is a single request on the error path.
+    assertEquals(refreshes(), 1);
+  } finally {
+    await fake.stop();
+    await Deno.remove(out, { recursive: true });
+  }
+});
+
+Deno.test('an ambiguity the live catalogue has resolved is not an error', async () => {
+  // Two fields shared a name when the catalogue was written and one has since been renamed.
+  const { source } = twoAnswers(
+    [{ id: 'customfield_1', name: 'Team' }, { id: 'customfield_2', name: 'Team' }],
+    [{ id: 'customfield_1', name: 'Team' }, { id: 'customfield_2', name: 'Squad' }],
+  );
+  await sessionWith(source, TEAM_FILTER, () => {});
+});
+
+Deno.test('a catalogue that resolves everything is never refetched', async () => {
+  const { source, refreshes } = twoAnswers(
+    [{ id: 'customfield_1', name: 'Team' }],
+    [{ id: 'customfield_1', name: 'Team' }],
+  );
+  await sessionWith(source, TEAM_FILTER, () => {
+    assertEquals(refreshes(), 0);
+  });
+});
+
+Deno.test('no field predicate means the catalogue is never asked for at all', async () => {
+  let asked = 0;
+  const source = {
+    get: () => {
+      asked++;
+      return Promise.resolve([]);
+    },
+    refresh: () => Promise.resolve([]),
+  };
+  await sessionWith(source, { include: [{ project: ['DN'] }] }, () => {
+    assertEquals(asked, 0);
+  });
+});

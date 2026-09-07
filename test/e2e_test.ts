@@ -2,13 +2,19 @@
  * This is what exercises the wiring in src/main.ts — argument parsing, config resolution, the
  * filter stages, asset download and the file layout — in one pass. */
 
-import { assert, assertEquals, assertFalse, assertStringIncludes } from '@std/assert';
+import {
+  assert,
+  assertEquals,
+  assertFalse,
+  assertRejects,
+  assertStringIncludes,
+} from '@std/assert';
 import { basename, join } from '@std/path';
 import { EXIT, run } from '../src/main.ts';
 import { configPathFor } from '../src/config/location.ts';
 import type { FiltersConfig } from '../src/config/schema.ts';
 import { stringify as stringifyYaml } from '@std/yaml';
-import { startFakeJira } from './fake_jira.ts';
+import { type FakeOptions, startFakeJira } from './fake_jira.ts';
 
 /** Config knobs a single run needs; an options object rather than positional booleans. */
 interface RunOptions {
@@ -23,16 +29,25 @@ interface Harness {
   out: string;
   /** The stand-in project root. Runs resolve their config from it, exactly as a real one does. */
   projectRoot: string;
+  /** The stand-in metadata cache. One per harness, so a cache hit in one test cannot answer a
+   * request-count assertion in another. */
+  cacheDir: string;
+  /** Where the config file is written, for a test that wants to read it back. */
+  configDir: string;
   requests: string[];
   runWith: (args: string[], options?: RunOptions) => Promise<number>;
   stdout: string[];
 }
 
-async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
-  const fake = await startFakeJira();
+async function withJira(
+  fn: (h: Harness) => Promise<void>,
+  fakeOptions: FakeOptions = {},
+): Promise<void> {
+  const fake = await startFakeJira(fakeOptions);
   const out = await Deno.makeTempDir();
   const projectRoot = await Deno.makeTempDir();
   const configDir = await Deno.makeTempDir();
+  const cacheDir = await Deno.makeTempDir();
   const originalLog = console.log;
   const stdout: string[] = [];
   console.log = (...args: unknown[]) => void stdout.push(args.join(' '));
@@ -42,6 +57,8 @@ async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
       origin: fake.origin,
       out,
       projectRoot,
+      cacheDir,
+      configDir,
       requests: fake.requests,
       stdout,
       runWith: async (args, { filters, allowJql, cwd } = {}) => {
@@ -58,17 +75,26 @@ async function withJira(fn: (h: Harness) => Promise<void>): Promise<void> {
             ...(filters ? { filters } : {}),
           }),
         );
-        // Pinning both seals the run. Without them the walk for `.git` and the derived path in
-        // $HOME would resolve this very repository's real configuration, token included — and
-        // nothing asserts the token, so the leak would not turn the suite red.
-        return await run([...args, '--out', out], { projectRoot, configDir, cwd });
+        // Pinning all three seals the run. Without the first two, the walk for `.git` and the
+        // derived path in $HOME would resolve this very repository's real configuration, token
+        // included — and nothing asserts the token, so the leak would not turn the suite red.
+        // Without `cacheDir` the suite reads and writes the developer's own metadata cache, and
+        // because a cache hit is a request that does not happen, the request-count assertions
+        // below would start depending on what ran before them.
+        return await run([...args, '--out', out], { projectRoot, configDir, cacheDir, cwd });
       },
     });
   } finally {
     console.log = originalLog;
     await fake.stop();
     await Promise.all(
-      [out, projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+      // NotFound is tolerated: `cache --clear` removes its directory as the thing under test, and
+      // teardown failing on that would report a passing test as an error.
+      [out, projectRoot, configDir, cacheDir].map((dir) =>
+        Deno.remove(dir, { recursive: true }).catch((cause) => {
+          if (!(cause instanceof Deno.errors.NotFound)) throw cause;
+        })
+      ),
     );
   }
 }
@@ -273,20 +299,21 @@ Deno.test('a filter naming an unknown field fails as a config error, before any 
 Deno.test('config-file prints the derived path and writes nothing', async () => {
   const projectRoot = await Deno.makeTempDir();
   const configDir = await Deno.makeTempDir();
+  const cacheDir = await Deno.makeTempDir();
   const stdout: string[] = [];
   const originalLog = console.log;
   console.log = (...args: unknown[]) => void stdout.push(args.join(' '));
   try {
     // Exit 0 with the file absent is the point: `$EDITOR "$(jira-fetch config-file)"` has to work
     // the first time, before there is anything to edit.
-    assertEquals(await run(['config-file'], { projectRoot, configDir }), EXIT.ok);
+    assertEquals(await run(['config-file'], { projectRoot, configDir, cacheDir }), EXIT.ok);
     assertEquals(stdout.length, 1);
     assertEquals(stdout[0], configPathFor(projectRoot, configDir));
     assertEquals(await Array.fromAsync(Deno.readDir(configDir)), []);
   } finally {
     console.log = originalLog;
     await Promise.all(
-      [projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+      [projectRoot, configDir, cacheDir].map((dir) => Deno.remove(dir, { recursive: true })),
     );
   }
 });
@@ -301,7 +328,9 @@ Deno.test('config-file needs no valid configuration, only a repository', async (
 });
 
 Deno.test('config-file refuses arguments that name work it will not do', async () => {
-  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y' };
+  // All three pinned even though these runs return before any of them is read. The rule is about
+  // entry points, not about the current dispatch order: a later reorder would unseal them silently.
+  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y', cacheDir: '/tmp/z' };
   assertEquals(await run(['config-file', 'DN-1'], deps), EXIT.usageError);
   assertEquals(await run(['config-file', '--jql', 'x'], deps), EXIT.usageError);
   assertEquals(await run(['config-file', '--dry-run'], deps), EXIT.usageError);
@@ -310,7 +339,10 @@ Deno.test('config-file refuses arguments that name work it will not do', async (
 Deno.test('outside a git repository the error says so rather than naming a missing file', async () => {
   const outside = await Deno.makeTempDir();
   try {
-    assertEquals(await run(['config-file'], { cwd: outside, configDir: outside }), EXIT.usageError);
+    assertEquals(
+      await run(['config-file'], { cwd: outside, configDir: outside, cacheDir: outside }),
+      EXIT.usageError,
+    );
   } finally {
     await Deno.remove(outside, { recursive: true });
   }
@@ -322,18 +354,170 @@ Deno.test('setup refuses without a terminal, and says where the file would be', 
   // that can allocate a pty gets past it.
   const projectRoot = await Deno.makeTempDir();
   const configDir = await Deno.makeTempDir();
+  const cacheDir = await Deno.makeTempDir();
   try {
-    assertEquals(await run(['setup'], { projectRoot, configDir }), EXIT.usageError);
+    assertEquals(await run(['setup'], { projectRoot, configDir, cacheDir }), EXIT.usageError);
     assertEquals(await Array.fromAsync(Deno.readDir(configDir)), []);
   } finally {
     await Promise.all(
-      [projectRoot, configDir].map((dir) => Deno.remove(dir, { recursive: true })),
+      [projectRoot, configDir, cacheDir].map((dir) => Deno.remove(dir, { recursive: true })),
     );
   }
 });
 
 Deno.test('setup refuses arguments that name work it will not do', async () => {
-  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y' };
+  const deps = { projectRoot: '/tmp/x', configDir: '/tmp/y', cacheDir: '/tmp/z' };
   assertEquals(await run(['setup', 'DN-1'], deps), EXIT.usageError);
   assertEquals(await run(['setup', '--jql', 'x'], deps), EXIT.usageError);
+});
+
+// --- jira-fetch cache ------------------------------------------------------------------------
+
+/** Which resources a cache directory has entries for. */
+const cachedFiles = async (dir: string): Promise<string[]> => {
+  const names: string[] = [];
+  for await (const item of Deno.readDir(dir)) names.push(item.name);
+  return names.sort();
+};
+
+Deno.test('cache names its projects and reads what they contain', async () => {
+  await withJira(async ({ runWith, cacheDir, requests }) => {
+    assertEquals(await runWith(['cache', 'DN']), EXIT.ok);
+
+    const files = await cachedFiles(cacheDir);
+    assert(files.includes('manifest.json'), files.join(', '));
+    assert(files.includes('fields.json'));
+    assert(files.includes('DN-issueTypes.json'));
+    assert(files.includes('DN-sprints.json'));
+    // Site-wide resources are read once, not once per project.
+    assertEquals(requests.filter((r) => r.endsWith('/rest/api/3/label')).length, 1);
+  });
+});
+
+Deno.test('cache reuses the projects it was given last time', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    await runWith(['cache', 'DN', 'SUP']);
+    // No keys this time: the manifest is what remembers them, so nothing has to be retyped.
+    assertEquals(await runWith(['cache']), EXIT.ok);
+    const files = await cachedFiles(cacheDir);
+    assert(files.includes('DN-components.json'));
+    assert(files.includes('SUP-components.json'));
+  });
+});
+
+Deno.test('cache with nothing chosen says what to do rather than reading everything', async () => {
+  await withJira(async ({ runWith, requests }) => {
+    // Reading every project a token can see would be hundreds of requests nobody asked for.
+    assertEquals(await runWith(['cache']), EXIT.usageError);
+    assertFalse(requests.some((r) => r.includes('/rest/api/3/label')));
+  });
+});
+
+Deno.test('cache --show reads nothing and reports what is there', async () => {
+  await withJira(async ({ runWith, requests, stdout, cacheDir }) => {
+    await runWith(['cache', 'DN']);
+    const before = requests.length;
+    assertEquals(await runWith(['cache', '--show']), EXIT.ok);
+    assertEquals(requests.length, before, '--show must not touch the site');
+    // stdout carries the directory alone, so it can be used in a shell substitution.
+    assert(stdout.includes(cacheDir), stdout.join(' | '));
+  });
+});
+
+Deno.test('cache --clear removes the directory and says so', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    await runWith(['cache', 'DN']);
+    assert((await cachedFiles(cacheDir)).length > 0);
+    assertEquals(await runWith(['cache', '--clear']), EXIT.ok);
+    await assertRejects(() => Deno.stat(cacheDir), Deno.errors.NotFound);
+  });
+});
+
+Deno.test('a resource this token cannot read is cached as unreadable, not as empty', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    assertEquals(await runWith(['cache', 'DN']), EXIT.ok);
+    const labels = JSON.parse(await Deno.readTextFile(join(cacheDir, 'labels.json')));
+    assertEquals(labels.state, 'partial');
+    assertEquals(labels.notes[0].code, 'forbidden');
+    assertEquals(labels.data, []);
+  }, { forbid: ['/rest/api/3/label'] });
+});
+
+Deno.test('a project without Create Issues still caches everything else', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    // The fake refuses createmeta for SUP, which is the ordinary case for a token that can browse
+    // a project but not create in it.
+    assertEquals(await runWith(['cache', 'SUP']), EXIT.ok);
+    const options = JSON.parse(await Deno.readTextFile(join(cacheDir, 'SUP-fieldOptions.json')));
+    assertEquals(options.state, 'partial');
+    const components = JSON.parse(await Deno.readTextFile(join(cacheDir, 'SUP-components.json')));
+    assertEquals(components.state, 'ok');
+  });
+});
+
+Deno.test('a site without Jira Software caches sprints as unavailable', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    assertEquals(await runWith(['cache', 'DN']), EXIT.ok);
+    const boards = JSON.parse(await Deno.readTextFile(join(cacheDir, 'DN-boards.json')));
+    assertEquals(boards.notes[0].code, 'agileUnavailable');
+    const sprints = JSON.parse(await Deno.readTextFile(join(cacheDir, 'DN-sprints.json')));
+    assertEquals(sprints.notes[0].code, 'dependencyMissing');
+  }, { noAgile: true });
+});
+
+Deno.test('a site that hides email addresses says so rather than looking empty', async () => {
+  await withJira(async ({ runWith, cacheDir }) => {
+    await runWith(['cache', 'DN']);
+    const users = JSON.parse(await Deno.readTextFile(join(cacheDir, 'DN-users.json')));
+    assertEquals(users.notes[0].code, 'emailsHidden');
+    assertEquals(users.data.length, 1);
+    assertEquals(users.data[0].accountId, '5f1a2b');
+  }, { hideEmails: true });
+});
+
+Deno.test('the field list is read once across two runs, not once per run', async () => {
+  await withJira(async ({ runWith, requests }) => {
+    const filters = { include: [{ field: { Team: ['Platform'] } }] };
+    await runWith(['DN-1243'], { filters });
+    await runWith(['DN-1243'], { filters });
+    // This is the assertion that catches the cached field source being quietly disconnected — and
+    // the one that would silently pass on a leftover entry if `cacheDir` were not pinned.
+    assertEquals(requests.filter((r) => r.endsWith('/rest/api/3/field')).length, 1);
+  });
+});
+
+// --- jira-fetch filters ----------------------------------------------------------------------
+
+Deno.test('filters refuses without a terminal, and changes nothing', async () => {
+  // The same barrier as setup, and for the same reason: this menu can relax the rules that decide
+  // an agent's access, and a Bash tool has no controlling terminal.
+  await withJira(async ({ runWith, projectRoot, configDir }) => {
+    await runWith(['config-file']);
+    const before = await Deno.readTextFile(configPathFor(projectRoot, configDir));
+    assertEquals(await runWith(['filters']), EXIT.usageError);
+    assertEquals(await Deno.readTextFile(configPathFor(projectRoot, configDir)), before);
+  });
+});
+
+Deno.test('filters refuses arguments that name work it will not do', async () => {
+  await withJira(async ({ runWith }) => {
+    assertEquals(await runWith(['filters', 'DN-1']), EXIT.usageError);
+    assertEquals(await runWith(['filters', '--jql', 'x']), EXIT.usageError);
+    assertEquals(await runWith(['filters', '--dry-run']), EXIT.usageError);
+  });
+});
+
+Deno.test('filters needs a configuration before it can change one', async () => {
+  // Without credentials there is no site to read the choices from, so it says which command to
+  // run rather than opening an empty menu.
+  const projectRoot = await Deno.makeTempDir();
+  const configDir = await Deno.makeTempDir();
+  const cacheDir = await Deno.makeTempDir();
+  try {
+    assertEquals(await run(['filters'], { projectRoot, configDir, cacheDir }), EXIT.usageError);
+  } finally {
+    await Promise.all(
+      [projectRoot, configDir, cacheDir].map((dir) => Deno.remove(dir, { recursive: true })),
+    );
+  }
 });

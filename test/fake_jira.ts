@@ -22,6 +22,14 @@ export interface Fake {
 export interface FakeOptions {
   /** Attachment requests fail, so a caller can see how a partial fetch is reported. */
   attachmentsFail?: boolean;
+  /** Path fragments that answer 403, so a caller can see a resource the token may not read. */
+  forbid?: string[];
+  /** The Agile family answers 404, which is what a site without Jira Software looks like. */
+  noAgile?: boolean;
+  /** People come back without email addresses, as they do on a site that does not publish them. */
+  hideEmails?: boolean;
+  /** Every request answers 200 with an HTML login page, which is what a wrong host looks like. */
+  loginPage?: boolean;
 }
 
 export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
@@ -36,6 +44,105 @@ export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
   }, (request) => {
     const url = new URL(request.url);
     requests.push(`${request.method} ${url.pathname}`);
+
+    if (options.loginPage) {
+      // The failure `setup`'s credential check exists for: a wrong host answers 200 with HTML, so
+      // `response.ok` is true and only the content type gives it away.
+      return new Response('<html><body>Sign in</body></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    if (url.pathname === '/rest/api/3/myself') {
+      return Response.json({
+        accountId: '5f1a2b',
+        displayName: 'Kim Doe',
+        ...(options.hideEmails ? {} : { emailAddress: 'kim@example.com' }),
+      });
+    }
+
+    // --- project metadata, which `jira-fetch cache` reads -------------------------------------
+    // Placed before the issue handlers because `/rest/api/3/issue/createmeta/...` shares their
+    // prefix, and the dispatcher above matches on `startsWith`.
+
+    if ((options.forbid ?? []).some((fragment) => url.pathname.includes(fragment))) {
+      return Response.json({ errorMessages: ['not permitted'] }, { status: 403 });
+    }
+    if (options.noAgile && url.pathname.startsWith('/rest/agile/')) {
+      return new Response('not found', { status: 404 });
+    }
+
+    if (url.pathname === '/rest/api/3/project/search') {
+      return Response.json({
+        values: [
+          { id: '10000', key: 'DN', name: 'Datavault' },
+          { id: '10001', key: 'SUP', name: 'Support' },
+        ],
+        isLast: true,
+      });
+    }
+    if (url.pathname === '/rest/api/3/label') {
+      return Response.json({ values: ['security', 'wontfix'], isLast: true, total: 2 });
+    }
+    if (url.pathname === '/rest/api/3/priority/search') {
+      return Response.json({
+        values: [{ id: '1', name: 'High' }, { id: '3', name: 'Low' }],
+        isLast: true,
+      });
+    }
+    // SUP refuses createmeta by default, so the partial path is exercised without a knob: a token
+    // that can browse a project but not create issues in it is the ordinary case.
+    if (url.pathname.startsWith('/rest/api/3/issue/createmeta/SUP/')) {
+      return Response.json({ errorMessages: ['no permission'] }, { status: 403 });
+    }
+    if (/^\/rest\/api\/3\/issue\/createmeta\/[A-Z]+\/issuetypes$/.test(url.pathname)) {
+      return Response.json({ issueTypes: [{ id: '10001', name: 'Bug' }], total: 1 });
+    }
+    if (/^\/rest\/api\/3\/issue\/createmeta\/[A-Z]+\/issuetypes\/\d+$/.test(url.pathname)) {
+      return Response.json({
+        fields: [
+          {
+            key: 'customfield_10101',
+            name: 'Team',
+            allowedValues: [{ value: 'Platform' }, { value: 'Data' }],
+            operations: [],
+            required: false,
+            schema: { type: 'array' },
+          },
+        ],
+        total: 1,
+      });
+    }
+    if (/^\/rest\/api\/3\/project\/[A-Z]+\/statuses$/.test(url.pathname)) {
+      return Response.json([
+        { id: '10001', statuses: [{ id: '1', name: 'To Do' }, { id: '3', name: 'Done' }] },
+        // The same status under a second issue type, which is why the cache de-duplicates.
+        { id: '10002', statuses: [{ id: '3', name: 'Done' }] },
+      ]);
+    }
+    if (/^\/rest\/api\/3\/project\/[A-Z]+\/components$/.test(url.pathname)) {
+      return Response.json([{ id: '9', name: 'Infra' }]);
+    }
+    if (/^\/rest\/api\/3\/project\/[A-Z]+\/version$/.test(url.pathname)) {
+      return Response.json({ values: [{ id: '4', name: '1.0' }], isLast: true });
+    }
+    if (url.pathname === '/rest/api/3/user/assignable/search') {
+      return Response.json([
+        {
+          accountId: '5f1a2b',
+          displayName: 'Kim Doe',
+          ...(options.hideEmails ? {} : { emailAddress: 'kim@example.com' }),
+        },
+      ]);
+    }
+    if (url.pathname === '/rest/agile/1.0/board') {
+      return Response.json({ values: [{ id: 7, name: 'DN board', type: 'scrum' }], isLast: true });
+    }
+    if (/^\/rest\/agile\/1\.0\/board\/\d+\/sprint$/.test(url.pathname)) {
+      return Response.json({
+        values: [{ id: 3, name: 'Sprint 3', state: 'active' }],
+        isLast: true,
+      });
+    }
 
     if (url.pathname.startsWith('/rest/api/3/issue/DN-1200')) {
       return Response.json({

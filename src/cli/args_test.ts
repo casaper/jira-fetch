@@ -94,3 +94,94 @@ Deno.test('flags default to false rather than undefined', () => {
   assertFalse(args.help);
   assertEquals(args.out, undefined);
 });
+
+Deno.test('cache is a subcommand, and its default is to do whatever is needed', () => {
+  const args = parseCliArgs(['cache']);
+  assertEquals(args.mode, 'cache');
+  assertEquals(args.cacheAction, 'choose');
+});
+
+Deno.test('each cache flag names the whole run', () => {
+  assertEquals(parseCliArgs(['cache', '--refresh']).cacheAction, 'refresh');
+  assertEquals(parseCliArgs(['cache', '--show']).cacheAction, 'show');
+  assertEquals(parseCliArgs(['cache', '--clear']).cacheAction, 'clear');
+});
+
+Deno.test('two cache flags at once is a usage error, not a precedence rule', () => {
+  assertThrows(
+    () => parseCliArgs(['cache', '--refresh', '--show']),
+    UsageError,
+    'cannot be combined',
+  );
+  assertThrows(
+    () => parseCliArgs(['cache', '--show', '--clear']),
+    UsageError,
+    'cannot be combined',
+  );
+});
+
+Deno.test('a cache flag outside cache mode is refused rather than ignored', () => {
+  // A flag that silently does nothing is worse than one that says where it belongs.
+  assertThrows(() => parseCliArgs(['--refresh']), UsageError, 'outside jira-fetch cache');
+  assertThrows(() => parseCliArgs(['DN-1', '--show']), UsageError, 'outside jira-fetch cache');
+  assertThrows(() => parseCliArgs(['setup', '--clear']), UsageError, 'outside jira-fetch cache');
+});
+
+Deno.test('cache takes project keys, not issue keys', () => {
+  assertEquals(parseCliArgs(['cache', 'DN', 'SUP']).cacheProjects, ['DN', 'SUP']);
+  // Named twice is named once: the same project is not read twice.
+  assertEquals(parseCliArgs(['cache', 'DN', 'DN']).cacheProjects, ['DN']);
+  assertEquals(parseCliArgs(['cache']).cacheProjects, []);
+});
+
+Deno.test('a cache argument that is not a project key is refused', () => {
+  // It reaches a filename and a REST path segment, so the shape is checked here rather than
+  // discovered later.
+  for (const bad of ['DN-1', 'dn', '../etc', 'D N']) {
+    assertThrows(
+      () => parseCliArgs(['cache', bad]),
+      UsageError,
+      'is not a Jira project key',
+    );
+  }
+});
+
+Deno.test('cache fetches no issues, so the fetch flags have no meaning', () => {
+  assertThrows(() => parseCliArgs(['cache', '--jql', 'x']), UsageError, '--jql has no meaning');
+  assertThrows(() => parseCliArgs(['cache', '--dry-run']), UsageError, '--dry-run has no meaning');
+});
+
+Deno.test('help wins over a misplaced cache flag', () => {
+  // The help short-circuit is above every command guard, so `--help` prints help whatever else is
+  // on the line.
+  assertEquals(parseCliArgs(['--help', '--refresh']).help, 'cli');
+  assert(parseCliArgs(['--version', '--show']).version);
+});
+
+Deno.test('cache has no help page of its own, and both spellings agree', () => {
+  assertEquals(parseCliArgs(['help', 'cache']).help, 'cli');
+  assertEquals(parseCliArgs(['cache', '--help']).help, 'cli');
+});
+
+Deno.test('filters is a subcommand with no page of its own', () => {
+  assertEquals(parseCliArgs(['filters']).mode, 'filters');
+  assertEquals(parseCliArgs(['filters', '--help']).help, 'cli');
+  assertEquals(parseCliArgs(['help', 'filters']).help, 'cli');
+  // A typo names itself rather than quietly selecting the general help.
+  assertThrows(() => parseCliArgs(['help', 'filter']), UsageError, 'no help for');
+});
+
+Deno.test('filters fetches nothing, so it takes no keys and no fetch flags', () => {
+  assertThrows(() => parseCliArgs(['filters', 'DN-1']), UsageError, 'takes no issue keys');
+  assertThrows(() => parseCliArgs(['filters', '--jql', 'x']), UsageError, '--jql has no meaning');
+  assertThrows(
+    () => parseCliArgs(['filters', '--dry-run']),
+    UsageError,
+    '--dry-run has no meaning',
+  );
+  assertThrows(
+    () => parseCliArgs(['filters', '--refresh']),
+    UsageError,
+    'outside jira-fetch cache',
+  );
+});
