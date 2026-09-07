@@ -52,11 +52,15 @@ no environment variables, no flags, no config file in the project. `jira-fetch` 
 inside a repository. [The MCP server](#mcp-server) is why it works this way.
 
 ```sh
-jira-fetch setup          # create or change it, interactively
+jira-fetch setup          # credentials, output folder, people
+jira-fetch filters        # which tickets are fetched
 jira-fetch config-file    # print its path, whether or not it exists yet
 ```
 
-`setup` asks for each setting and explains what it is for, including where to create an API token.
+`setup` asks for your site, your account email and an API token — including where to create one —
+and checks them against Jira before writing anything. Once they work, it shows a form with the rest
+of the settings and their current values, so you change what you care about and leave the rest.
+
 To edit the file by hand afterwards:
 
 ```sh
@@ -102,6 +106,7 @@ jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
 jira-fetch --jql "<JQL>"           fetch every issue matching a query
 jira-fetch mcp                     serve the same pipeline over MCP (see below)
 jira-fetch setup                   configure this project, interactively
+jira-fetch filters                 choose which tickets are fetched
 jira-fetch config-file             print the path of this project's config file
 jira-fetch cache <KEY>...          read what your Jira projects contain
 
@@ -111,12 +116,14 @@ jira-fetch cache <KEY>...          read what your Jira projects contain
 ```
 
 Exit codes: `0` success · `1` runtime error · `2` usage or config error · `3` nothing written
-because every issue was excluded by a filter.
+because every issue was excluded by a filter. An interactive menu left with Ctrl+C exits `130`.
 
 ## Filters
 
 Filters decide which tickets are fetched at all, and which comments make it into the document.
-`jira-fetch setup` walks through them;
+`jira-fetch filters` builds them by picking from what your site actually has — its labels,
+statuses, components, versions, sprints, people, and the values each custom field accepts — so you
+are choosing from a list rather than typing from memory.
 [`docs/config-example.yml`](https://github.com/casaper/jira-fetch/blob/main/docs/config-example.yml)
 shows every option in one file.
 

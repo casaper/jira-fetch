@@ -19,6 +19,7 @@ deno task dev DN-1243 --out tmp      # run from source (no `--`: deno forwards i
 deno task dev config-file             # which config file a run in this repo would read
 deno task dev cache DN                # read a Jira project's metadata into the cache
 deno task dev setup                   # the interactive menu (needs a real terminal)
+deno task dev filters                 # the filter menu (needs a real terminal)
 deno task mcp                         # the MCP server from source, on stdio
 deno task check                       # typecheck + lint + fmt --check + assert the JSON Schema is current
 deno check test/                      # `check` covers src/ and scripts/ only — tests need this separately
@@ -371,7 +372,7 @@ src/util/modes.ts       the owner-only file and directory modes both writers use
 src/config/schema.ts    Zod schemas — the single source of truth (see below)
 src/config/location.ts  where a project's config file is — git root, slug, config dir
 src/config/config.ts    reading and resolving that one file
-src/setup/              the `setup` menu, the config writer, the Claude Code deny rules
+src/setup/              the two menus, the config writer, the Claude Code deny rules
 src/jira/client.ts      auth, retry, and every REST call
 src/filter/rules.ts     compiles validated rules into their runtime form
 src/filter/evaluate.ts  the three filter stages
@@ -507,7 +508,19 @@ reading every project the token can see.
 
 ## Setup writes files outside the repository, and only when asked
 
-`src/setup/` has three parts, split so that the two that can be tested are.
+`src/setup/` is split so that everything testable is tested and the two menus stay thin.
+`prompts.ts` is the **only** module in the tree that imports `@cliffy/prompt`; everything above
+it passes plain data and gets a typed answer back, so swapping the library is one file.
+
+| module                                  | kind                                                               |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `config_file.ts`, `claude_settings.ts`  | I/O, fully tested                                                  |
+| `verify.ts`                             | the credential probe, injected `fetch`, fully tested               |
+| `form.ts`                               | the setup form as data — rows, values, validators — pure           |
+| `filter_draft.ts`                       | choices ↔ `TicketRule` ↔ `FiltersConfig` — pure                    |
+| `filter_render.ts`                      | rules as prose, metadata as choice lists — pure                    |
+| `metadata.ts`                           | the cache read into what a menu offers — tested against a temp dir |
+| `prompts.ts`, `tui.ts`, `filter_tui.ts` | the cliffy layer — thin, untested                                  |
 
 - **`config_file.ts`** composes and writes the config: validated through the loader's own
   `parseConfigFile`, so `setup` cannot produce a file the tool would refuse. Modes are passed at
@@ -522,17 +535,47 @@ reading every project the token can see.
   project so a teammate sees it. The **cache** directory gets its own pair of rules at user scope:
   it is outside the config directory so the config pattern does not reach it, it holds a project's
   whole assignable-user list, and its field list takes part in resolving `field:` predicates.
-- **`tui.ts`** is the menu, and is kept thin because a menu cannot be driven by the suite. It
-  refuses without `Deno.stdin.isTerminal()` — an agent's shell has no controlling terminal, which
-  is a real barrier at zero permission cost and **not** a boundary; say so rather than implying
-  otherwise. It spawns nothing: "open it in your editor" would cost `--allow-run` in every binary,
-  the MCP server included, so it prints the path.
+- **`tui.ts`** and **`filter_tui.ts`** are the menus, kept thin because a menu cannot be driven by
+  the suite. Both refuse without `Deno.stdin.isTerminal()` — an agent's shell has no controlling
+  terminal, which is a real barrier at zero permission cost and **not** a boundary; say so rather
+  than implying otherwise. Neither spawns anything: "open it in your editor" would cost
+  `--allow-run` in every binary, the MCP server included, so the path is printed.
+  `filter_tui.ts` loads through `loadProjectConfig` rather than a bare read, so
+  `assertProjectMatches` runs: `projectSlug` is not injective, and rewriting a file that declares
+  another project would clobber somebody else's rules.
 
 Only `setup` writes any of this. `fetch` and `mcp` must never touch Claude Code configuration — a
 Jira fetcher rewriting permission files on every run would fight the user's own edits.
 
-`space` is `promptSelect`'s selection key, so a scripted pty test cannot use a filter string
-containing one. That cost an hour; it is written down here so it costs nobody else one.
+`space` is `Checkbox`'s check key, so a scripted pty test cannot use a filter string containing
+one. That cost an hour once; it is written down here so it costs nobody else one.
+
+**Ctrl+C inside a prompt is `Deno.exit(130)`, not a throw** (`@cliffy/prompt`'s
+`_generic_prompt.ts`). Nothing above it runs: no `finally`, no cleanup line, and
+`Deno.exit(await run())` in `src/main.ts` never executes, so 130 bypasses the exit-code contract
+entirely. Raw mode without `cbreak` also suppresses `ISIG`, so no `SIGINT` arrives either — cliffy's
+key handler is the only interrupt path.
+
+That decides the save model, and it is why `setup` writes twice. Credentials go to disk the moment
+they verify; the rest goes on Save. A form that accumulated every answer and wrote once at the end
+would lose all of it to one keystroke, silently, including the token just typed. Do not "simplify"
+it into a single write.
+
+Terminal sanity is cliffy's own doing — it drops raw mode after every read and shows the cursor in a
+`finally` of its own — so **add no signal handling here**; it could only make that worse. The
+ordering that matters is ours: the terminal check and the path resolution happen before the first
+prompt, so a permission failure lands on a cooked terminal. Verified with
+`deno run --allow-net --allow-read --allow-write --deny-env src/main.ts setup`, which fails in
+`userConfigDir` before anything is drawn.
+
+**`@cliffy/prompt` needs no permission beyond the four baked in, and that was checked rather than
+assumed.** It brings `@cliffy/ansi`, `@cliffy/internal` and `@cliffy/keycode` — first-party
+siblings from the same MIT repo — plus `@std/io` and `@std/text`, and no npm packages. The near-miss
+worth recording: `@std/fmt/colors` decides colour from `Deno.noColor`, a **property**, not by
+reading `NO_COLOR`; had it read the variable, every prompt would throw under
+`--allow-env=HOME,APPDATA,USERPROFILE`. `Deno.consoleSize` throws without a terminal but throws a
+plain `Error`, which cliffy catches. `Input({ files: true })` is the one option that reaches
+`readDir` and is therefore never used.
 
 ## Zod is the single source of truth for configuration
 
