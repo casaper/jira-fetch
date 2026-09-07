@@ -6,6 +6,48 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.6.0 — 2026-09-07
+
+### Features
+
+- **setup:** rebuild both menus on cliffy, and add jira-fetch filters ([932019c](https://github.com/casaper/jira-fetch/commit/932019cc04f08fdd93ccf911d4e3d3fb012953fc))
+- **filter:** rules as something a menu can hold, and read back ([cad2086](https://github.com/casaper/jira-fetch/commit/cad208604a384925cefddda324d84bd4684b3fd1))
+- **setup:** the form model, and one place that knows about cliffy ([e5a9418](https://github.com/casaper/jira-fetch/commit/e5a941803a719e5012c2fac4b7fc5ebf311a7381))
+- **setup:** check credentials against the site before writing them ([3694ec5](https://github.com/casaper/jira-fetch/commit/3694ec5e61b315a0b8b6fa167fdf75ff55a493c5))
+- **cli:** add jira-fetch cache ([782b840](https://github.com/casaper/jira-fetch/commit/782b84028ba4db8e0c9be933522959b3d878c664))
+- **fetch:** serve the field catalogue from the cache ([425355a](https://github.com/casaper/jira-fetch/commit/425355af3423634d847c246cb11bf2180673198f))
+- **cache:** fill the cache, and record what could not be read ([73c6f50](https://github.com/casaper/jira-fetch/commit/73c6f50b57bae2c87763e0afced30624c124d183))
+- **jira:** read the project metadata the cache offers as choices ([6619879](https://github.com/casaper/jira-fetch/commit/6619879980362973c668b81d5e17661cfb5181ea))
+- **cache:** read and write cache entries, atomically and owner-only ([afcf4f7](https://github.com/casaper/jira-fetch/commit/afcf4f75c3285a991a84c7a0d3be4507300ca307))
+- **cache:** describe what the cache holds, and for how long ([c52328a](https://github.com/casaper/jira-fetch/commit/c52328a7c96097db2ed56800c7ccf690a2e2bdf2))
+- **cache:** derive a per-project cache directory ([ad8a779](https://github.com/casaper/jira-fetch/commit/ad8a779dd67ee82632235ceb5d32b6fc046c07fd))
+
+### Bug Fixes
+
+- **setup:** ask which projects only when none have been chosen ([e184fed](https://github.com/casaper/jira-fetch/commit/e184fed56c46b06ab635525fd1421071be03f947))
+- **setup:** record field ids so a tampered cache cannot redirect it ([3b47527](https://github.com/casaper/jira-fetch/commit/3b47527427ee3c07dc562c7d7541a86afe291201))
+- **setup:** fill the cache before the filter menu reads it ([47549ee](https://github.com/casaper/jira-fetch/commit/47549ee1b22f9ae501c8f487795544549cfdf2fd))
+- **cache:** compare paths the way the host spells them, in the tests ([5e608a6](https://github.com/casaper/jira-fetch/commit/5e608a6aa55f71952d9b26a61abaa0ad1920d72a))
+
+### Refactoring
+
+- **setup:** move the file modes into src/util/ ([e53dd04](https://github.com/casaper/jira-fetch/commit/e53dd04631ce435c431663b6c5f3cb301fbb1abf))
+
+### Documentation
+
+- **setup:** the deny rules cover two directories, not one ([1581c8b](https://github.com/casaper/jira-fetch/commit/1581c8b46f8c5dc0afeba839c691698efe95d5b7))
+- **setup:** describe both menus as they are now ([0086863](https://github.com/casaper/jira-fetch/commit/00868638137a5ccfe44e347bb688eb7b4aa2361d))
+- **setup:** show both directories in the deny-rule block ([977cfae](https://github.com/casaper/jira-fetch/commit/977cfaeb8fa17847b418d58dedab79fdcf7e0046))
+- **cache:** document the cache, and deny-list its directory ([2ff3906](https://github.com/casaper/jira-fetch/commit/2ff39067c63115871eadac71f0cfce7abb00e846))
+
+### Tests
+
+- **cache:** pin the fetch path to one cache module ([c7df29a](https://github.com/casaper/jira-fetch/commit/c7df29a9ae28fca3019c4ef3b99a71349b2c3ba9))
+
+### Chores
+
+- **deps:** add @cliffy/prompt ([8750e09](https://github.com/casaper/jira-fetch/commit/8750e09ce436afca47dfa252a9d7c4fafc5048cd))
+
 ## 0.5.6 — 2026-09-07
 
 ### Features
