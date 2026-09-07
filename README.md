@@ -254,9 +254,8 @@ setup.
 **But none of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
 "$(jira-fetch config-file)"` is not a trick, it is a command. What the design buys is that the
 policy and the credential are not things the agent meets in the course of its work; reaching either
-means
-deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's side: an
-API token belonging to an account that cannot see what you do not want read.
+means deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's
+side: an API token belonging to an account that cannot see what you do not want read.
 
 The guarantee is also about **what the server will fetch**, not what an agent can read. Filters are
 evaluated at fetch time, so tightening them later does not remove documents already written, and
@@ -315,10 +314,4 @@ one at a time. Jira's own API already conflates the two.
 
 ## Contributing
 
-Issues and pull requests are welcome. Everything about working on this — the tasks, the code style,
-the commit convention, how the test suite is sealed and how a release is cut — is in
-[CONTRIBUTING.md](https://github.com/casaper/jira-fetch/blob/main/CONTRIBUTING.md).
-
-The suite that runs on every push needs **no credentials and no network**: it drives the whole CLI,
-and the MCP server, against a fake Jira on localhost. It runs on Linux, macOS and Windows, and the
-badge at the top of this page is that run.
+[CONTRIBUTING.md](https://github.com/casaper/jira-fetch/blob/main/CONTRIBUTING.md)
