@@ -30,7 +30,7 @@ export const ancestors = (startDir: string): string[] => {
  * can pin the home directory without touching the process it runs in. */
 export type EnvReader = (name: string) => string | undefined;
 
-const readEnv: EnvReader = (name) => Deno.env.get(name);
+export const readEnv: EnvReader = (name: string): string | undefined => Deno.env.get(name);
 
 /**
  * The user's jira-fetch configuration directory.

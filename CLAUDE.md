@@ -178,8 +178,8 @@ type(scope)!: subject
 
 - Types and their changelog headings are declared together in `scripts/commit_lint.ts`; adding a
   type there is the only edit needed for it to appear in the changelog.
-- Scopes are optional and come from the layout: `config`, `cli`, `jira`, `filter`, `adf`, `assets`,
-  `document`, `schema`, `scripts`, `deps`, `release`.
+- Scopes are optional and come from the layout: `config`, `cache`, `cli`, `jira`, `filter`, `fetch`,
+  `adf`, `assets`, `document`, `mcp`, `setup`, `schema`, `scripts`, `deps`, `release`.
 - Header ≤ 72 characters, imperative, lower-case, no trailing period. Bodies wrap at 100 to match
   `.editorconfig`, and long unbreakable tokens (URLs, paths) are exempt.
 - **The convention governs the subject line only.** This project's commit bodies explain _why_, at
