@@ -11,7 +11,7 @@ Deno.test('the CLI page says how to reach the MCP page', () => {
 Deno.test('the CLI page mentions mcp only as a command', () => {
   // Everything below is what the MCP page is for. Merging the two back together is a one-line
   // edit, so the separation is pinned rather than remembered.
-  for (const needle of ['fetch_issues', 'search_issues', 'claude mcp add', 'sandbox', 'token']) {
+  for (const needle of ['fetch_issues', 'search_issues', 'claude mcp add', 'tools/list']) {
     assertFalse(HELP.includes(needle), `the CLI page should not mention ${needle}`);
   }
 });
