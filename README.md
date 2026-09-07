@@ -68,8 +68,8 @@ directory, outside every repository:
 | Windows      | `%APPDATA%\jira-fetch\<project-path>.yml` (that is `%USERPROFILE%\AppData\Roaming\`) |
 
 The filename is derived from the git repository you are in, so you never have to pick it — and
-there is nothing to pass: no environment variables (no `JIRA_API_TOKEN`), no flags naming a file,
-and no config file inside the project. That is deliberate, and [the MCP server](#mcp-server) is
+there is nothing to pass: no environment variables, no flags naming a file, and no config file
+inside the project. That is deliberate, and [the MCP server](#mcp-server) is
 why. `jira-fetch` must be run inside a git repository, since the repository root names the file.
 
 ```sh
@@ -244,12 +244,10 @@ setup.
 
 ### What the agent cannot do
 
-- **It cannot rewrite the policy**, because the policy is not in the project, and not in a file the
-  tool will search for either: the path is computed from the repository root, so creating a
-  `.jira-fetch.yml` in the working directory does nothing at all.
-- **It cannot skip the server with the token**, because the token is not in the environment its
-  shell inherits, nor in a `.env.local` in the tree. It is in the config file and nowhere else, and
-  there is no `--token` flag to put it in a process table either.
+- **It cannot rewrite the policy.** There is no config file inside the project; the path is computed
+  from the repository root, so it lands outside the tree the agent edits.
+- **It cannot reach the credentials.** The token is in that one file and nowhere else — not in the
+  environment its shell inherits, and not in any flag it could pass.
 
 **But none of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
 "$(jira-fetch config-file)"` is not a trick, it is a command. What the design buys is that the
