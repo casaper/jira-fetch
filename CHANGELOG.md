@@ -6,7 +6,25 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## 0.5.4 — 2026-09-06
+## 0.5.5 — 2026-09-07
+
+### Documentation
+
+- break the JQL section into short sentences ([1b727d9](https://github.com/casaper/jira-fetch/commit/1b727d94b9e617e50ae1c2d97049e7285093bdb4))
+- halve the "never fetched" paragraph ([8b3e479](https://github.com/casaper/jira-fetch/commit/8b3e4792c832c0c34ec29c7f7bf772c0c6d7ab15))
+- drop the file modes and the filename-collision paragraph ([51cd1fb](https://github.com/casaper/jira-fetch/commit/51cd1fbb089598e6039c478713123e23cc74ad92))
+- stop saying "git repository" twice in one paragraph ([e03083d](https://github.com/casaper/jira-fetch/commit/e03083df2d393b1cd0671eb61415e74db063f719))
+- drop the "Without npm" block; npm is the install path ([c273f34](https://github.com/casaper/jira-fetch/commit/c273f3432ad708d6e121d9670b5064e222a44cd2))
+- answer the only two install questions a reader has ([2a35a52](https://github.com/casaper/jira-fetch/commit/2a35a5255ced46e788943379142472b47044d66e))
+- halve the AI-authorship disclaimer ([f4bc262](https://github.com/casaper/jira-fetch/commit/f4bc2621f5b46e744d792f13d195a9350b2c6e12))
+- **config:** stop claiming the config file can be JSON ([df8c819](https://github.com/casaper/jira-fetch/commit/df8c819c3b10cd6556fd35cff347a6e9fca670bb))
+- cut the sandbox caveat to the caveat and the advice ([e2f88d4](https://github.com/casaper/jira-fetch/commit/e2f88d4206f07cc28e49de0d8d2993758ea6c7c2))
+- stop naming the config files and flags that do not exist ([97980c5](https://github.com/casaper/jira-fetch/commit/97980c5fdf234b29c0f2ba3fe354fe3184108c5e))
+- reduce the README's Contributing section to a link ([f8dab15](https://github.com/casaper/jira-fetch/commit/f8dab159785ef3c48481b0155141c92a66f81c0c))
+- drop the License section from the README ([76fcb6d](https://github.com/casaper/jira-fetch/commit/76fcb6d04cf7793e954593b1b6c0e58c9b3a751a))
+- cut a fifth of the README and stop repeating the guarantee ([9d40878](https://github.com/casaper/jira-fetch/commit/9d408781c5234478f784d5076095fb026968c861))
+
+## 0.5.4 — 2026-09-07
 
 ### Breaking changes
 
