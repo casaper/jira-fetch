@@ -7,10 +7,8 @@
 Fetch Jira Cloud issues into Markdown files with YAML frontmatter, attachments and all — from the
 terminal, or over MCP so an AI agent reads Jira through a config file it does not control.
 
-> **This project was written entirely by AI.** Every line of code, test and document in this
-> repository was produced by Claude in a series of prompted sessions — it is fully vibe-coded.
-> It is tested (no credentials or network needed) and it does the job, but it has not been
-> line-by-line reviewed by a human. Read it before you trust it with credentials.
+> **This project was written entirely by AI.** Every line was produced by Claude — tested, but
+> never human-reviewed. Read it before you trust it with credentials.
 
 ```sh
 jira-fetch DN-1243 --out tmp
