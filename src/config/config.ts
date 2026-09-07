@@ -110,7 +110,10 @@ export type ResolveOptions = {
   cwd: string;
 };
 
-const normalizeBaseUrl = (raw: string): string => {
+/** Exported so `setup` can check a site address before it tries to use one, in the loader's own
+ * words. A second copy of the loopback rule would be a second thing to tighten wrongly, and that
+ * rule is what lets the whole end-to-end suite talk to a fake Jira over plain http. */
+export const normalizeBaseUrl = (raw: string): string => {
   const trimmed = raw.trim().replace(/\/+$/, '');
   let url: URL;
   try {

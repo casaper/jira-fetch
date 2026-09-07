@@ -28,6 +28,8 @@ export interface FakeOptions {
   noAgile?: boolean;
   /** People come back without email addresses, as they do on a site that does not publish them. */
   hideEmails?: boolean;
+  /** Every request answers 200 with an HTML login page, which is what a wrong host looks like. */
+  loginPage?: boolean;
 }
 
 export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
@@ -42,6 +44,21 @@ export function startFakeJira(options: FakeOptions = {}): Promise<Fake> {
   }, (request) => {
     const url = new URL(request.url);
     requests.push(`${request.method} ${url.pathname}`);
+
+    if (options.loginPage) {
+      // The failure `setup`'s credential check exists for: a wrong host answers 200 with HTML, so
+      // `response.ok` is true and only the content type gives it away.
+      return new Response('<html><body>Sign in</body></html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    if (url.pathname === '/rest/api/3/myself') {
+      return Response.json({
+        accountId: '5f1a2b',
+        displayName: 'Kim Doe',
+        ...(options.hideEmails ? {} : { emailAddress: 'kim@example.com' }),
+      });
+    }
 
     // --- project metadata, which `jira-fetch cache` reads -------------------------------------
     // Placed before the issue handlers because `/rest/api/3/issue/createmeta/...` shares their
