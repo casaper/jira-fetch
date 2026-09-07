@@ -322,17 +322,3 @@ the commit convention, how the test suite is sealed and how a release is cut —
 The suite that runs on every push needs **no credentials and no network**: it drives the whole CLI,
 and the MCP server, against a fake Jira on localhost. It runs on Linux, macOS and Windows, and the
 badge at the top of this page is that run.
-
-## License
-
-[MIT](https://github.com/casaper/jira-fetch/blob/main/LICENSE).
-
-Every dependency is permissive: Deno, the Deno standard library (`@std/*`) and zod are MIT, the V8
-the binaries embed is BSD-3-Clause, and Atlassian's Jira and ADF schemas — vendored under `spec/`,
-generated into `src/jira/schema_types.ts` — are Apache-2.0, attributed in
-[spec/NOTICE](https://github.com/casaper/jira-fetch/blob/main/spec/NOTICE). None of it is copyleft;
-the obligation is attribution, not disclosure.
-
-One footnote, given the disclaimer at the top: purely AI-generated work may not attract copyright
-protection at all in some jurisdictions, the US among them. MIT is still the right label — it says
-plainly that you may use this for anything.
