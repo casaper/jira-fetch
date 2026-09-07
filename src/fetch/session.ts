@@ -11,6 +11,7 @@ import { ConfigError } from '../config/errors.ts';
 import type { FieldResolver } from '../filter/evaluate.ts';
 import { preFetchDecision, ticketDecision } from '../filter/evaluate.ts';
 import type { JiraClient } from '../jira/client.ts';
+import type { JiraFieldMeta } from '../jira/types.ts';
 import { assetDirName, buildManifest, downloadAssets } from '../assets/download.ts';
 import { assembleDocument } from '../document/assemble.ts';
 import type { IssueRef } from '../jira/types.ts';
@@ -42,6 +43,12 @@ export type SessionOptions = {
   /** Progress and filter decisions. Whatever this does, it must not be stdout in MCP mode. */
   log: (message: string) => void;
   dryRun?: boolean;
+  /**
+   * Where the field catalogue comes from. Defaults to the live client call, which is what seals
+   * the suite: a test constructing a session gets live behaviour without having to know that a
+   * cache exists, and only `src/main.ts` opts into the cached source.
+   */
+  fields?: FieldSource;
 };
 
 export type FetchSession = {
@@ -70,19 +77,34 @@ export type FetchSession = {
  * and this site has four such pairs; picking whichever the API happened to list last would make
  * the meaning of a rule depend on the response order.
  */
-const makeFieldResolver = async (
-  client: JiraClient,
-  names: string[],
-  log: (m: string) => void,
-): Promise<FieldResolver> => {
-  if (names.length === 0) return () => undefined;
+/** The field catalogue, and a way to insist on a fresh one.
+ *
+ * Two methods rather than one because a *cached* catalogue can manufacture an error that is simply
+ * wrong: a field renamed on the site since the last refresh reads as "does not exist". So the
+ * resolver asks again, live, before it refuses — see `makeFieldResolver`. */
+export type FieldSource = {
+  get(): Promise<FieldCatalogEntry[]>;
+  /** Bypasses any cache. Called only when `get()` produced a catalogue that fails to resolve. */
+  refresh(): Promise<FieldCatalogEntry[]>;
+};
 
-  log('  resolving custom field names...');
+/** Derived from the wire type so `client.getFields()` satisfies it with no adapter, and narrowed to
+ * the three properties resolution reads. */
+export type FieldCatalogEntry = Pick<JiraFieldMeta, 'id' | 'name'> & { key?: string };
+
+/** Builds the resolution maps and reports which of `names` they cannot answer.
+ *
+ * Separated from the throwing half so the whole thing can be run twice against two catalogues.
+ */
+const buildResolver = (
+  entries: FieldCatalogEntry[],
+  names: string[],
+): { resolve: FieldResolver; problems: string[] } => {
   // Ids and keys are unique, names are not, so they cannot share one map: a name resolving to two
   // fields has to stay visible as two rather than collapsing to the last one written.
   const byId = new Map<string, string>();
   const byName = new Map<string, Set<string>>();
-  for (const field of await client.getFields()) {
+  for (const field of entries) {
     byId.set(field.id.toLowerCase(), field.id);
     if (field.key) byId.set(field.key.toLowerCase(), field.id);
     const existing = byName.get(field.name.toLowerCase()) ?? new Set<string>();
@@ -111,6 +133,27 @@ const makeFieldResolver = async (
         : `field "${name}" does not exist on this site`,
     );
   }
+  return { resolve, problems };
+};
+
+const makeFieldResolver = async (
+  source: FieldSource,
+  names: string[],
+  log: (m: string) => void,
+): Promise<FieldResolver> => {
+  if (names.length === 0) return () => undefined;
+
+  log('  resolving custom field names...');
+  let { resolve, problems } = buildResolver(await source.get(), names);
+
+  if (problems.length > 0) {
+    // The catalogue may have come from a cache, and a field renamed since it was written reads as
+    // one that does not exist. One request, on the error path only, so the error a run dies on is a
+    // live fact — which is what earns the right to refuse rather than warn.
+    log('  a configured field name did not resolve; checking the live field list...');
+    ({ resolve, problems } = buildResolver(await source.refresh(), names));
+  }
+
   if (problems.length > 0) {
     throw new ConfigError(
       `filters name fields this Jira site does not resolve:\n${
@@ -125,7 +168,9 @@ const makeFieldResolver = async (
 /** Resolves custom-field names once, then hands back a session over that resolution. */
 export const createSession = async (opts: SessionOptions): Promise<FetchSession> => {
   const { config, client, log } = opts;
-  const resolveField = await makeFieldResolver(client, config.filters.fieldNames, log);
+  const fields: FieldSource = opts.fields ??
+    { get: () => client.getFields(), refresh: () => client.getFields() };
+  const resolveField = await makeFieldResolver(fields, config.filters.fieldNames, log);
 
   const fetch = async (key: string): Promise<Outcome> => {
     const pre = preFetchDecision(key, config.filters);
