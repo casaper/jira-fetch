@@ -501,10 +501,32 @@ and the ambiguity check still fires — an edit can add or remove fields but can
 cache at all, so the surface is one file. **Do not cache the resolved map as an optimisation**; that
 is the edit that would give the whole thing away.
 
+Both halves of that are now assertions rather than prose. `src/cache/surface_test.ts` walks `src/`
+and pins the complete list of modules that import anything under `src/cache/` — `main.ts` and the
+three in `src/setup/` — so a cache read added under `fetch/`, `mcp/`, `filter/` or `jira/` turns the
+suite red instead of quietly widening the surface. It also pins which three cache modules `main.ts`
+takes, and refuses a resolved-map-shaped thing in `fields.ts`. Both were checked by violating them,
+because a structural test that passes vacuously is worse than none.
+
 `jira-fetch cache` takes project keys and is the one subcommand with positional arguments. It is
 deliberately non-interactive: a command that can be scripted is also one the e2e suite can drive end
 to end. With no keys it reuses the manifest's selection, and with neither it says so rather than
 reading every project the token can see.
+
+**`jira-fetch filters` fills the cache itself and must keep doing so.** The menu exists to offer what
+the site actually contains, so a first run that found an empty cache and said "go and run
+`jira-fetch cache` first" was the pre-cache menu with extra steps — it offered nothing and sent the
+reader away. `src/setup/ensure_cache.ts` owns the sequence, and the order in it is forced rather than
+chosen: the site-wide resources are read first because the project picker offers the **cached**
+project list, and only then can anything project-scoped be read. Nothing inside its TTL is refetched,
+so opening the menu twice in a minute costs nothing the second time — `src/setup/ensure_cache_test.ts`
+asserts both halves against a counting `MetadataClient`, which is the seam that makes "this was never
+fetched" assertable without an HTTP server.
+
+Consequently **no reason string a menu shows may tell the reader to run `jira-fetch cache`**. By the
+time one is rendered the refresh has already been attempted, so a resource that is still missing is
+one the site would not give up; `NOT_CACHED` and `OUT_OF_DATE` in `src/setup/metadata.ts` say that
+instead, and a test pins it.
 
 ## Setup writes files outside the repository, and only when asked
 
@@ -520,6 +542,7 @@ it passes plain data and gets a typed answer back, so swapping the library is on
 | `filter_draft.ts`                       | choices ↔ `TicketRule` ↔ `FiltersConfig` — pure                    |
 | `filter_render.ts`                      | rules as prose, metadata as choice lists — pure                    |
 | `metadata.ts`                           | the cache read into what a menu offers — tested against a temp dir |
+| `ensure_cache.ts`                       | refresh, pick projects, refresh those — prompts nothing, tested    |
 | `prompts.ts`, `tui.ts`, `filter_tui.ts` | the cliffy layer — thin, untested                                  |
 
 - **`config_file.ts`** composes and writes the config: validated through the loader's own
@@ -542,7 +565,12 @@ it passes plain data and gets a typed answer back, so swapping the library is on
   `--allow-run` in every binary, the MCP server included, so the path is printed.
   `filter_tui.ts` loads through `loadProjectConfig` rather than a bare read, so
   `assertProjectMatches` runs: `projectSlug` is not injective, and rewriting a file that declares
-  another project would clobber somebody else's rules.
+  another project would clobber somebody else's rules. It also guards `baseUrl`, `email` **and**
+  `token` before anything else, because it reads the site rather than only editing a file — naming
+  which are missing beats a 401 three screens in.
+- **`ensure_cache.ts`** is the refresh, and it takes the project selection as a **callback** rather
+  than prompting. That is what puts the whole sequence — refresh the site, choose the projects,
+  refresh those — on the tested side of the line while `filter_tui.ts` keeps only the screens.
 
 Only `setup` writes any of this. `fetch` and `mcp` must never touch Claude Code configuration — a
 Jira fetcher rewriting permission files on every run would fight the user's own edits.
@@ -693,6 +721,22 @@ by name has to refuse the ambiguity rather than take whichever the API listed la
 the ids, and a raw id always resolves unambiguously. Do not soften this back into a warning on the
 grounds that a config might be shared across sites — the same block is what an agent's access is
 decided by.
+
+**`jira-fetch filters` records ids, never display names** (`fieldChoiceList` in
+`src/setup/filter_render.ts`), and labels them with the name on screen. That is the one mitigation
+available for the cache being tamperable: `buildResolver` matches an exact id before any display
+name and treats an id the catalogue lacks as a problem, so a rule naming an id **fails closed** — a
+rewritten `site/fields.json` can force a refusal but cannot point the predicate at a different
+field. A rule naming `Team` has no such guarantee, which is why the menu no longer writes one. The
+price is a config saying `customfield_10050` where a reader would rather see `Team`, and it is paid
+deliberately: **do not restore the readability by recording the name**, the same way the resolved
+name-to-id map must not be cached. A hand-written name still resolves, so nothing existing breaks.
+
+Because both spellings are live, `findField` (`src/setup/filter_render.ts`) mirrors `buildResolver`
+exactly — id first, a name only when unique, both case-insensitive — and `setFieldValues` takes the
+"same field" test as a parameter. Without that, re-picking a field a hand-written config named `Team`
+would append `customfield_10101` beside it: two conditions on one field, ANDed, which is nobody's
+intent. `src/setup/filter_draft_test.ts` pins it.
 
 **It checks the live field list once before it refuses.** The catalogue it resolves against comes
 from the cache, and a field renamed on the site since that entry was written reads as one that does

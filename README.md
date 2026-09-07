@@ -89,6 +89,10 @@ jira-fetch cache --show     # what is cached, and how old
 jira-fetch cache --clear    # delete it
 ```
 
+`jira-fetch filters` does this for you before it offers anything, so there is nothing to run first —
+the command above is for looking at what was read, or for reading a project you have not filtered
+on yet.
+
 |              |                                      |
 | ------------ | ------------------------------------ |
 | macOS, Linux | `~/.cache/jira-fetch/<hash>/`        |
@@ -153,7 +157,10 @@ filters:
 - **`field` reaches every field, built-in ones included**, spelled exactly as Jira spells it:
   `field: {Status: [Done, Cancelled]}` and `field: {Issue Type: [Bug]}` are how you filter by status
   and by type, and there is no separate predicate for either. A raw `customfield_10101` works in
-  place of a name.
+  place of a name — and is what `jira-fetch filters` writes, showing you the name on screen, so do
+  not be surprised to find `customfield_10101:` where you picked "Team". A name is resolved through
+  the cached field list; an id is matched before it, so a rule that names one keeps meaning the same
+  field whatever happens to that cache.
 - **A field name that does not resolve stops the run** with exit code 2, before any issue is
   fetched — as does one that resolves to _two_ fields, since Jira lets two custom fields share a
   name. The error names both ids so you can pick one.

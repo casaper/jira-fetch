@@ -12,7 +12,9 @@ import { loadProjectConfig } from '../config/config.ts';
 import { ConfigError } from '../config/errors.ts';
 import type { FiltersConfig, ValueMatcher } from '../config/schema.ts';
 import { parseFilters } from '../config/schema.ts';
-import { readManifest } from '../cache/store.ts';
+import { summarise } from '../cache/report.ts';
+import { PROJECT_KEY } from '../cli/args.ts';
+import { JiraClient } from '../jira/client.ts';
 import { readConfigFileIfPresent, writeConfigFile } from './config_file.ts';
 import {
   clearPredicate,
@@ -23,6 +25,7 @@ import {
   type FiltersDraft,
   filtersToDraft,
   type PredicateKey,
+  removeField,
   type RuleDraft,
   setFieldValues,
 } from './filter_draft.ts';
@@ -31,6 +34,7 @@ import {
   COMMON_FIELDS,
   fieldChoiceList,
   filtersToLines,
+  findField,
   nothingAvailable,
   predicateRows,
   resourceReport,
@@ -38,8 +42,10 @@ import {
   testTitle,
   valueChoiceList,
 } from './filter_render.ts';
-import type { ChoiceList, NameLookup } from './filter_render.ts';
-import { loadMetadataView, nameLookup } from './metadata.ts';
+import type { ChoiceList, LabelLookup } from './filter_render.ts';
+import { ensureCache } from './ensure_cache.ts';
+import type { ProjectChoice } from './ensure_cache.ts';
+import { labelLookup, loadMetadataView } from './metadata.ts';
 import type { MetadataView, NamedValue, Resource } from './metadata_view.ts';
 import { askText, check, confirm, hasTerminal, type Item, pick, rule, say } from './prompts.ts';
 
@@ -47,7 +53,73 @@ export type FilterSetupOptions = {
   configPath: string;
   projectRoot: string;
   cacheDir: string;
+  /** Injectable so the cache refresh can be pointed at a fake site; nothing but a test would. */
+  fetch?: typeof fetch;
 };
+
+/** Project keys as typed by hand: upper-cased and split, so `dn, sup` is accepted. */
+const splitKeys = (value: string): string[] =>
+  value.split(',').map((key) => key.trim().toUpperCase()).filter((key) => key !== '');
+
+/**
+ * Which Jira projects the cache covers, and so which values this menu can offer.
+ *
+ * An empty offer is not a dead end. `GET /project/search` needs Browse Projects, and a token that
+ * cannot list the site's projects can still read one it is told the key of — so the keys are typed
+ * in that case rather than the screen being empty.
+ */
+const chooseProjects = async (offer: ProjectChoice[], current: string[]): Promise<string[]> => {
+  say();
+  if (offer.length === 0) {
+    say('This token could not list the projects on this site, so name them yourself.');
+    const answer = await askText({
+      message: 'Jira project keys',
+      hint: 'comma-separated, e.g. DN, SUP',
+      ...(current.length > 0 ? { default: current.join(', ') } : {}),
+      validate: (value) => {
+        const keys = splitKeys(value);
+        if (keys.length === 0) return 'name at least one project key';
+        const bad = keys.find((key) => !PROJECT_KEY.test(key));
+        return bad === undefined ? true : `"${bad}" is not a Jira project key`;
+      },
+    });
+    return splitKeys(answer);
+  }
+
+  say('Components, versions, sprints, issue types and assignable people are per project, so this');
+  say('decides what there is to pick from.');
+  // No minimum. Choosing none is a real answer — someone filtering only on project keys and labels
+  // needs nothing project-scoped, `loadMetadataView` handles an empty selection, and Escape is a
+  // no-op at a prompt's top level, so a minimum here would leave Ctrl+C as the only way out.
+  const chosen = await check<string>({
+    message: 'Projects to offer values from',
+    items: offer.map((project) => ({
+      value: project.key,
+      name: project.name ? `${project.key} — ${project.name}` : project.key,
+      checked: current.includes(project.key),
+    })),
+    search: offer.length > 8,
+  });
+  if (chosen.length === 0) {
+    say('  None chosen, so only site-wide values — labels, fields, priorities — will be offered.');
+    say('  Projects on the main menu changes that.');
+  }
+  return chosen;
+};
+
+/**
+ * The picker at menu open, which asks only while nothing is selected.
+ *
+ * Opening this menu to change one label rule must not walk through a project picker first, every
+ * time. So a selection is asked for once and then reused and merely refreshed; **Projects** on the
+ * main menu is how it changes.
+ *
+ * An empty selection is asked about again on the next open, since it is indistinguishable from
+ * never having been asked. That is the better of the two: one Enter dismisses it, where the
+ * alternative is a menu that silently offers no project values for ever.
+ */
+const chooseIfUnset = (offer: ProjectChoice[], current: string[]): Promise<string[]> =>
+  current.length > 0 ? Promise.resolve(current) : chooseProjects(offer, current);
 
 const BACK = Symbol('back');
 type Back = typeof BACK;
@@ -92,7 +164,10 @@ const valuesFor = (
 ): ChoiceList => valueChoiceList(resource, selected, { absentLabel });
 
 /** Which resource a field's values should be offered from, where the field is a built-in that the
- * cache tracks separately. Anything else falls back to the field's own `allowedValues`. */
+ * cache tracks separately. Anything else falls back to the field's own `allowedValues`.
+ *
+ * Keyed on the **display name**, deliberately, even though the rule records the id: a built-in's id
+ * is not its name (`Issue Type` is `issuetype`), and `Sprint` is a custom field id entirely. */
 const resourceForField = (view: MetadataView, name: string): Resource<NamedValue> | undefined => {
   switch (name.toLowerCase()) {
     case 'status':
@@ -156,8 +231,8 @@ const editFieldPredicate = async (
 ): Promise<RuleDraft> => {
   const list = fieldChoiceList(view.fields, COMMON_FIELDS);
   if (list.note) say(`  ${list.note}`);
-  say('  A name is resolved against this Jira site. One that does not exist, or that two fields');
-  say('  share, stops the run — a condition that quietly matches nothing is worse.');
+  say('  Recorded by id and shown by name. A field the site does not have, or one that two fields');
+  say('  share the name of, stops the run — a condition that quietly matches nothing is worse.');
 
   const items: Array<Item<string | Back>> = list.items.map((choice) => ({
     value: choice.value,
@@ -165,16 +240,25 @@ const editFieldPredicate = async (
   }));
   items.push(rule(), { value: BACK, name: '‹ back' });
 
-  const name = await pick<string | Back>({
+  const picked = await pick<string | Back>({
     message: '  Which field',
     items,
     search: list.items.length > 8,
   });
-  if (name === BACK) return draft;
+  if (picked === BACK) return draft;
 
-  const existing = draft.field.find((entry) => entry.name === name)?.values ?? [];
-  const resource = resourceForField(view, name);
-  const own = view.fields.items.find((field) => field.name === name || field.id === name);
+  // The picker hands back an id; a draft loaded from a hand-written config may hold a display name.
+  // Both spellings are the same predicate, so resolving here is what stops an already-configured
+  // field opening with nothing ticked and a save producing two entries for it.
+  const own = findField(view.fields, picked);
+  const key = own?.id ?? picked;
+  const shown = own?.name ?? picked;
+  const same = (spelling: string): boolean =>
+    spelling.toLowerCase() === key.toLowerCase() ||
+    (own !== undefined && spelling.toLowerCase() === own.name.toLowerCase());
+
+  const existing = draft.field.find((entry) => same(entry.name))?.values ?? [];
+  const resource = resourceForField(view, shown);
   const valueList = resource
     ? valuesFor(resource, existing, '(absent — the field is unset)')
     : own?.allowedValues
@@ -186,24 +270,24 @@ const editFieldPredicate = async (
     : valuesFor(
       {
         status: 'unavailable',
-        reason: `this site does not publish the values for "${name}", so they are typed`,
+        reason: `this site does not publish the values for "${shown}", so they are typed`,
         items: [],
       },
       existing,
       '(absent — the field is unset)',
     );
 
-  const values = await pickValues(`  Accepted values for ${name}`, valueList, 'value');
+  const values = await pickValues(`  Accepted values for ${shown}`, valueList, 'value');
   return values.length === 0
-    ? { ...draft, field: draft.field.filter((entry) => entry.name !== name) }
-    : setFieldValues(draft, name, values);
+    ? removeField(draft, key, same)
+    : setFieldValues(draft, key, values, same);
 };
 
 /** One rule, edited until it is done or abandoned. */
 const editRule = async (
   initial: RuleDraft,
   view: MetadataView,
-  names: NameLookup,
+  labels: LabelLookup,
   what: 'include' | 'exclude',
 ): Promise<RuleDraft | undefined> => {
   let draft = initial;
@@ -216,7 +300,7 @@ const editRule = async (
     );
     say('Every condition below must hold for this rule to match.');
 
-    const rows = predicateRows(draft, names);
+    const rows = predicateRows(draft, labels);
     const width = Math.max(...rows.map((row) => row.label.length));
     const items: Array<Item<PredicateKey | 'done' | 'cancel'>> = rows.map((row) => ({
       value: row.key,
@@ -289,7 +373,7 @@ const editRule = async (
 const editRuleList = async (
   drafts: RuleDraft[],
   view: MetadataView,
-  names: NameLookup,
+  labels: LabelLookup,
   what: 'include' | 'exclude',
 ): Promise<RuleDraft[]> => {
   let rules = [...drafts];
@@ -298,7 +382,7 @@ const editRuleList = async (
       const asRule = draftToRule(draft);
       return {
         value: index,
-        name: asRule ? ruleToText(asRule, names) : 'nothing set',
+        name: asRule ? ruleToText(asRule, labels) : 'nothing set',
       };
     });
     items.push(rule());
@@ -309,7 +393,7 @@ const editRuleList = async (
     if (chosen === 'back') return rules;
 
     if (chosen === 'add') {
-      const built = await editRule(emptyRuleDraft(), view, names, what);
+      const built = await editRule(emptyRuleDraft(), view, labels, what);
       if (built) rules = [...rules, built];
       continue;
     }
@@ -325,7 +409,7 @@ const editRuleList = async (
     if (action === 'remove') {
       rules = rules.filter((_, index) => index !== chosen);
     } else if (action === 'edit') {
-      const edited = await editRule(rules[chosen], view, names, what);
+      const edited = await editRule(rules[chosen], view, labels, what);
       rules = edited
         ? rules.map((existing, index) => index === chosen ? edited : existing)
         : rules.filter((_, index) => index !== chosen);
@@ -361,9 +445,16 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   // is not injective, and rewriting a file that declares another project would clobber somebody
   // else's filters.
   const file = await loadProjectConfig(opts.configPath, opts.projectRoot);
-  if (!file.baseUrl) {
+  // All three, because this menu now reads the site to find out what there is to filter on rather
+  // than only editing a file. Naming the missing ones beats a 401 three screens later. Destructured
+  // so the three are `string` from here on without an assertion.
+  const { baseUrl, email, token } = file;
+  if (!baseUrl || !email || !token) {
+    const missing = [['baseUrl', baseUrl], ['email', email], ['token', token]]
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
     throw new ConfigError(
-      `${opts.configPath} has no baseUrl yet — run jira-fetch setup first`,
+      `${opts.configPath} has no ${missing.join(', ')} yet — run jira-fetch setup first`,
     );
   }
 
@@ -371,42 +462,81 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   say(`Filters for ${opts.projectRoot}`);
   say(`  ${opts.configPath}`);
 
-  const manifest = await readManifest(opts.cacheDir, {
-    project: opts.projectRoot,
-    baseUrl: file.baseUrl,
-  });
-  const projectKeys = manifest.hit?.projects ?? [];
-
-  const view = await loadMetadataView({
-    cacheDir: opts.cacheDir,
-    project: opts.projectRoot,
-    baseUrl: file.baseUrl,
-    projectKeys,
-    now: () => Date.now(),
+  const client = new JiraClient({
+    baseUrl,
+    email,
+    token,
+    ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
   });
 
-  say();
-  say('What this site has to filter on');
-  for (const line of resourceReport(view)) say(line);
+  /**
+   * Fill the cache, then read it back.
+   *
+   * Both halves together, always: a refresh without a re-read would leave the menu offering the
+   * values it had before, which is the failure that is hardest to notice. The refresh skips
+   * anything still inside its TTL, so opening this menu twice in a minute costs no requests the
+   * second time.
+   */
+  const load = async (
+    choose: (offer: ProjectChoice[], current: string[]) => Promise<string[]>,
+  ): Promise<{ view: MetadataView; projectKeys: string[] }> => {
+    say();
+    say('Reading what this site has to filter on. This can take a few seconds; anything already');
+    say('cached and still current is not fetched again.');
+    const ensured = await ensureCache({
+      client,
+      cacheDir: opts.cacheDir,
+      project: opts.projectRoot,
+      baseUrl,
+      now: () => Date.now(),
+      // The cache's own log is the --verbose channel and speaks in cache terms; a menu should not
+      // relay it. What happened is reported below, in the words `jira-fetch cache` uses.
+      log: () => {},
+      chooseProjects: choose,
+    });
+
+    say();
+    if (ensured.failure !== undefined) {
+      // A Jira failure is a note on a resource, never a throw, so only a cache directory that
+      // cannot be written reaches here. Whatever is already on disk is still usable.
+      say(`The cache could not be written: ${ensured.failure}`);
+      say('Carrying on with whatever was cached before.');
+      say();
+    }
+
+    const view = await loadMetadataView({
+      cacheDir: opts.cacheDir,
+      project: opts.projectRoot,
+      baseUrl,
+      projectKeys: ensured.projectKeys,
+      now: () => Date.now(),
+    });
+
+    // The view rather than the refresh outcomes: this screen answers "what can I pick from", and
+    // every reason a list is short travels with it. `summarise` adds the half the view cannot
+    // know — how much of that came off the wire just now rather than out of the cache.
+    say('What this site has to filter on');
+    for (const line of resourceReport(view)) say(line);
+    if (ensured.failure === undefined) say(`  ${summarise(ensured.outcomes)}`);
+
+    return { view, projectKeys: ensured.projectKeys };
+  };
+
+  let loaded = await load(chooseIfUnset);
+  let view = loaded.view;
+  let projectKeys = loaded.projectKeys;
 
   if (nothingAvailable(view)) {
     say();
-    say('Nothing could be read from the cache, so there is nothing to pick from.');
-    const next = await pick<'cache' | 'type' | 'quit'>({
-      message: 'What now?',
-      items: [
-        { value: 'cache', name: 'Quit and run jira-fetch cache <PROJECT-KEY>... first' },
-        { value: 'type', name: 'Carry on and type every value by hand' },
-        { value: 'quit', name: 'Quit' },
-      ],
-    });
-    if (next !== 'type') {
+    say('Nothing could be read from this site, so there is nothing to pick from. That usually');
+    say('means the credentials are wrong, or the token may not browse these projects.');
+    if (!await confirm({ message: 'Carry on and type every value by hand?', default: false })) {
       say('Nothing was written.');
       return 0;
     }
   }
 
-  const names = nameLookup(view);
+  let labels = labelLookup(view);
   let draft: FiltersDraft = filtersToDraft(file.filters);
 
   say();
@@ -416,9 +546,11 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   for (;;) {
     const current = draftToFilters(draft);
     say();
-    for (const line of filtersToLines(current, names)) say(line);
+    for (const line of filtersToLines(current, labels)) say(line);
 
-    const chosen = await pick<'include' | 'exclude' | 'comments' | 'save' | 'quit'>({
+    const chosen = await pick<
+      'include' | 'exclude' | 'comments' | 'projects' | 'save' | 'quit'
+    >({
       message: 'Filters',
       items: [
         {
@@ -434,6 +566,13 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
           name: `Comments — authors to leave out              (${draft.commentAuthors.length})`,
         },
         rule(),
+        {
+          value: 'projects',
+          name: `Projects — where values are offered from     (${
+            projectKeys.length > 0 ? projectKeys.join(', ') : 'none'
+          })`,
+        },
+        rule(),
         { value: 'save', name: 'Review and save' },
         { value: 'quit', name: 'Discard and quit' },
       ],
@@ -444,22 +583,29 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
       return 0;
     }
     if (chosen === 'include') {
-      draft = { ...draft, include: await editRuleList(draft.include, view, names, 'include') };
+      draft = { ...draft, include: await editRuleList(draft.include, view, labels, 'include') };
       continue;
     }
     if (chosen === 'exclude') {
-      draft = { ...draft, exclude: await editRuleList(draft.exclude, view, names, 'exclude') };
+      draft = { ...draft, exclude: await editRuleList(draft.exclude, view, labels, 'exclude') };
       continue;
     }
     if (chosen === 'comments') {
       draft = { ...draft, commentAuthors: await editCommentAuthors(draft.commentAuthors, view) };
       continue;
     }
+    if (chosen === 'projects') {
+      loaded = await load(chooseProjects);
+      view = loaded.view;
+      projectKeys = loaded.projectKeys;
+      labels = labelLookup(view);
+      continue;
+    }
 
     const filters = draftToFilters(draft);
     say();
     say('Save these filters?');
-    for (const line of filtersToLines(filters, names)) say(line);
+    for (const line of filtersToLines(filters, labels)) say(line);
     say();
     say('  Nothing has been written yet.');
 

@@ -8,6 +8,7 @@ import {
   COMMON_FIELDS,
   fieldChoiceList,
   filtersToLines,
+  findField,
   matchersToChoiceValues,
   nothingAvailable,
   predicateRows,
@@ -107,25 +108,63 @@ Deno.test('a value the cache has not heard of is kept, not silently dropped', ()
   assertStringIncludes(kept.name, 'not on this site');
 });
 
-Deno.test('two fields sharing a name are offered by id', () => {
-  // Jira Cloud allows it, makeFieldResolver refuses the ambiguity before fetching anything, and a
-  // menu offering the bare name twice would build a config that dies on the next run.
+Deno.test('every field is recorded by id and shown by name', () => {
+  // Two reasons, and both are in the docstring: two custom fields may share a display name, and a
+  // name is resolved through the cache while an id is matched before it. A rule naming the id fails
+  // closed — a tampered catalogue can force a refusal but cannot redirect the predicate.
   const fields: FieldInfo[] = [
     { id: 'customfield_10078', name: 'Category' },
     { id: 'customfield_10045', name: 'Category' },
     { id: 'customfield_10101', name: 'Team' },
   ];
   const list = fieldChoiceList(available(fields), []);
-  const categories = list.items.filter((item) => item.name.startsWith('Category'));
-  assertEquals(categories.length, 2);
-  for (const choice of categories) {
-    assertStringIncludes(choice.name, 'customfield_');
-    assert(choice.value.startsWith('customfield_'), `${choice.value} should be a raw id`);
-  }
-  // An unambiguous field is still offered by its readable name.
+
+  // An unambiguous field reads as its name and records its id.
   const team = list.items.find((item) => item.name === 'Team');
   assert(team);
-  assertEquals(team.value, 'Team');
+  assertEquals(team.value, 'customfield_10101');
+
+  // A duplicated name keeps the id in the label too, or the two would be indistinguishable.
+  const categories = list.items.filter((item) => item.name.startsWith('Category'));
+  assertEquals(categories.length, 2);
+  assertEquals(
+    categories.map((choice) => choice.value).sort(),
+    ['customfield_10045', 'customfield_10078'],
+  );
+  for (const choice of categories) assertStringIncludes(choice.name, 'customfield_');
+});
+
+Deno.test('findField resolves either spelling, and refuses an ambiguous name', () => {
+  // Mirrors buildResolver: an id wins, a name resolves only when one field carries it, and both
+  // are case-insensitive. Resolving more loosely here would record what the run then refuses.
+  const fields = available<FieldInfo>([
+    { id: 'customfield_10078', name: 'Category' },
+    { id: 'customfield_10045', name: 'Category' },
+    { id: 'customfield_10101', name: 'Team' },
+    { id: 'status', name: 'Status' },
+  ]);
+
+  assertEquals(findField(fields, 'customfield_10101')?.id, 'customfield_10101');
+  assertEquals(findField(fields, 'Team')?.id, 'customfield_10101');
+  assertEquals(findField(fields, 'team')?.id, 'customfield_10101');
+  assertEquals(findField(fields, 'CUSTOMFIELD_10101')?.id, 'customfield_10101');
+  assertEquals(findField(fields, 'status')?.name, 'Status');
+  // Ambiguous by name, so nothing — but each id still resolves on its own.
+  assertEquals(findField(fields, 'Category'), undefined);
+  assertEquals(findField(fields, 'customfield_10045')?.name, 'Category');
+  assertEquals(findField(fields, 'Nothing'), undefined);
+});
+
+Deno.test('a rule naming a field id still reads as the field name', () => {
+  // The readability is traded away in the file, deliberately. Giving it away on the screen as well
+  // would be paying for it twice.
+  const labels = (id: string) => id === 'customfield_10050' ? 'Team' : undefined;
+  const text = ruleToText({ field: { customfield_10050: ['Platform'] } }, labels);
+  assertStringIncludes(text, 'Team: Platform');
+
+  const rows = predicateRows(draftOf({ field: [{ name: 'customfield_10050', values: ['x'] }] }));
+  // With no lookup it falls back to the raw id rather than showing nothing.
+  assertStringIncludes(rows.find((row) => row.key === 'field')?.value ?? '', 'customfield_10050');
 });
 
 Deno.test('the common fields come first, whatever order the site listed them', () => {

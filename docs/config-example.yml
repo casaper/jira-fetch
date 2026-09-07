@@ -37,6 +37,11 @@ filters:
     - labels: [wontfix, duplicate]
     # `field` reaches built-in fields as well as custom ones — this is how you filter by type or
     # status. A name that does not resolve, or resolves to two fields, stops the run with exit 2.
+    #
+    # Names are shown here because they read better. `jira-fetch filters` writes the field's id
+    # instead — `customfield_10101` where you picked "Team" — and both resolve to the same field, so
+    # a file mixing the two is fine. An id is the safer of the two: a name is looked up in the cached
+    # field list, an id is matched before it.
     - field:
         Status: [Cancelled, Done]
         Issue Type: [Bug]

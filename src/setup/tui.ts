@@ -326,6 +326,8 @@ export const runSetup = async (opts: SetupOptions): Promise<number> => {
           configPath: opts.configPath,
           projectRoot: opts.projectRoot,
           cacheDir: opts.cacheDir,
+          // Forwarded so the chained path is no more able to reach the real site than this one is.
+          ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
         });
       case 'quit':
         say(

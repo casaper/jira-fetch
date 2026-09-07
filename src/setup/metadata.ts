@@ -4,12 +4,13 @@
  * the projects that were chosen, each carrying how completely it could be read. That merge is here
  * rather than in the menu so it is testable — a menu is not.
  *
- * Nothing here fetches. `jira-fetch cache` fills the cache and this reads it, so opening the filter
- * menu on a stale cache offers stale choices rather than blocking on the network.
+ * Nothing here fetches. `ensure_cache.ts` fills the cache and this reads it back, so a resource that
+ * is missing or out of date by the time it gets here is one the refresh could not repair — which is
+ * what the reasons below say.
  */
 
 import { readEntry } from '../cache/store.ts';
-import type { EntryRef } from '../cache/store.ts';
+import type { EntryRef, PinnedEntry } from '../cache/store.ts';
 import type { Resource as CacheResource } from '../cache/policy.ts';
 import {
   ComponentsEntry,
@@ -27,7 +28,7 @@ import {
 import type { CacheNote } from '../cache/schema.ts';
 import { describeNote } from '../cache/report.ts';
 import type { FieldInfo, MetadataView, NamedValue, Resource } from './metadata_view.ts';
-import type { NameLookup } from './filter_render.ts';
+import type { LabelLookup } from './filter_render.ts';
 
 export type MetadataDeps = {
   cacheDir: string;
@@ -39,7 +40,10 @@ export type MetadataDeps = {
   now: () => number;
 };
 
-const NOT_CACHED = 'not cached yet — run jira-fetch cache';
+// Both reasons are read *after* a refresh has been attempted, so neither can suggest running
+// something: whatever is missing here is missing because the site would not give it up.
+const NOT_CACHED = 'not cached, and it could not be read from the site';
+const OUT_OF_DATE = 'out of date, and it could not be refreshed';
 
 /** An entry's state as the menu's three-way status. `partial` with nothing in it is `unavailable`:
  * there is a reason and no data, which is a different thing to show than a short list. */
@@ -82,18 +86,6 @@ const merge = <T>(parts: Array<Resource<T>>, dedupe: (item: T) => string): Resou
 
 const byValue = (item: NamedValue): string => item.value;
 
-/** The envelope fields this module reads back. Wider than it looks because `readEntry` pins the
- * project, the site and the resource inside the entry, so those have to be part of the type. */
-type ReadEnvelope = {
-  project: string;
-  baseUrl: string;
-  fetchedAt: number;
-  resource: string;
-  state: 'ok' | 'partial';
-  notes: CacheNote[];
-  data: unknown;
-};
-
 export const loadMetadataView = async (deps: MetadataDeps): Promise<MetadataView> => {
   const ref = (resource: CacheResource, projectKey?: string): EntryRef => ({
     cacheDir: deps.cacheDir,
@@ -111,11 +103,15 @@ export const loadMetadataView = async (deps: MetadataDeps): Promise<MetadataView
     projectKey: string | undefined,
     map: (data: unknown) => T[],
   ): Promise<Resource<T>> => {
-    const found = await readEntry<ReadEnvelope>(schema, ref(resource, projectKey), deps.now());
+    const found = await readEntry<PinnedEntry<unknown>>(
+      schema,
+      ref(resource, projectKey),
+      deps.now(),
+    );
     if (!found.hit) {
       return {
         status: 'unavailable',
-        reason: found.miss === 'stale' ? 'out of date — run jira-fetch cache' : NOT_CACHED,
+        reason: found.miss === 'stale' ? OUT_OF_DATE : NOT_CACHED,
         items: [],
       };
     }
@@ -245,9 +241,17 @@ export const loadMetadataView = async (deps: MetadataDeps): Promise<MetadataView
   };
 };
 
-/** Resolves an accountId to a display name using what was read, so a stored rule reads as people
- * rather than as ids. */
-export const nameLookup = (view: MetadataView): NameLookup => {
+/**
+ * Resolves the opaque ids a rule is recorded with back to display labels, so a stored rule reads as
+ * people and fields rather than as ids.
+ *
+ * Both kinds in one map. The file records an accountId for a person and an id for a field —
+ * neither is readable, and both are deliberate: a display name is neither stable nor unique, and a
+ * field id is what makes a `field:` predicate immune to a tampered catalogue. Undoing that on the
+ * screen as well would be paying the cost twice.
+ */
+export const labelLookup = (view: MetadataView): LabelLookup => {
   const byId = new Map(view.users.items.map((person) => [person.value, person.label]));
-  return (accountId: string): string | undefined => byId.get(accountId);
+  for (const field of view.fields.items) byId.set(field.id, field.name);
+  return (id: string): string | undefined => byId.get(id);
 };
