@@ -131,11 +131,13 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   try {
     projectRoot = deps.projectRoot ?? await findProjectRoot(cwd);
     const filePath = configPathFor(projectRoot, deps.configDir ?? userConfigDir());
+    cacheDir = deps.cacheDir ?? await cacheDirFor(projectRoot, userCacheDir());
 
     if (args.mode === 'setup') {
       return await runSetup({
         configPath: filePath,
         configDir: dirname(filePath),
+        cacheDir,
         projectRoot,
         home: Deno.env.get('HOME') ?? Deno.env.get('USERPROFILE') ?? '',
       });
@@ -151,10 +153,6 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
       }
       return EXIT.ok;
     }
-
-    // Below the two branches above, deliberately: hashing the project root costs a digest, and
-    // `jira-fetch config-file` has no reason to pay for one.
-    cacheDir = deps.cacheDir ?? await cacheDirFor(projectRoot, userCacheDir());
 
     config = resolveConfig({
       flags: { out: args.out },

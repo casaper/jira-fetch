@@ -55,18 +55,27 @@ export const configDirPattern = (configDir: string, home: string): string => {
 
 /** The two files and what each should deny. */
 export const denyTargets = (
-  configDir: string,
-  home: string,
-  projectRoot: string,
+  { configDir, cacheDir, home, projectRoot }: {
+    configDir: string;
+    cacheDir: string;
+    home: string;
+    projectRoot: string;
+  },
 ): RuleTarget[] => {
-  const pattern = configDirPattern(configDir, home);
+  const config = configDirPattern(configDir, home);
+  // The cache is a separate directory outside the config one, so the pattern above does not reach
+  // it. It is worth its own pair for two reasons: it holds display names and, where the site
+  // publishes them, email addresses for a project's whole assignable-user list — a wider
+  // disclosure than the single token next door — and the field list in it takes part in resolving
+  // `field:` predicates, so an edit to it can change what a filter matches.
+  const cache = configDirPattern(cacheDir, home);
   return [
     {
       path: join(home, '.claude', 'settings.json'),
       label: 'your Claude Code settings (all projects)',
       // Read and Edit are the only two path-scoped tool names Claude Code honours; Read also
       // covers Grep, Glob and recognised Bash reads such as cat, sed and `< file` redirections.
-      rules: [`Read(${pattern})`, `Edit(${pattern})`],
+      rules: [`Read(${config})`, `Edit(${config})`, `Read(${cache})`, `Edit(${cache})`],
     },
     {
       path: join(projectRoot, '.claude', 'settings.local.json'),

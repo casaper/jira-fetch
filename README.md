@@ -72,6 +72,29 @@ email: you@example.com
 token: ATATT3xFfGF0...
 ```
 
+### What your Jira site contains
+
+Filters are easier to write when you can see what there is to filter on, so `jira-fetch` keeps a
+copy of your projects' labels, fields and the values they accept, issue types, statuses, components,
+versions, sprints and people:
+
+```sh
+jira-fetch cache DN SUP     # read those projects; they are remembered for next time
+jira-fetch cache            # read whatever has gone out of date
+jira-fetch cache --show     # what is cached, and how old
+jira-fetch cache --clear    # delete it
+```
+
+|              |                                      |
+| ------------ | ------------------------------------ |
+| macOS, Linux | `~/.cache/jira-fetch/<hash>/`        |
+| Windows      | `%APPDATA%\jira-fetch\cache\<hash>\` |
+
+It refreshes itself as it ages, so there is nothing to run on a schedule. Anything it could not read
+— a project you cannot create issues in, a site with no Agile boards, a token without permission for
+some of it — is recorded as unreadable rather than as empty, and `--show` says which. Nothing in
+there is anything a fresh read cannot produce again, so deleting it is always safe.
+
 ## Usage
 
 ```
@@ -80,6 +103,7 @@ jira-fetch --jql "<JQL>"           fetch every issue matching a query
 jira-fetch mcp                     serve the same pipeline over MCP (see below)
 jira-fetch setup                   configure this project, interactively
 jira-fetch config-file             print the path of this project's config file
+jira-fetch cache <KEY>...          read what your Jira projects contain
 
   -o, --out <dir>      output directory (default: current directory)
   -n, --dry-run        report what would be fetched and filtered; write nothing

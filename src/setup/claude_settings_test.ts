@@ -48,13 +48,22 @@ Deno.test('a sibling directory with a matching prefix is not mistaken for a chil
 });
 
 Deno.test('the user file denies the config directory; the project file denies setup', () => {
-  const [user, project] = denyTargets(
-    abs('home', 'kim', '.config', 'jira-fetch'),
-    abs('home', 'kim'),
-    abs('work', 'thing'),
-  );
+  const [user, project] = denyTargets({
+    configDir: abs('home', 'kim', '.config', 'jira-fetch'),
+    cacheDir: abs('home', 'kim', '.cache', 'jira-fetch'),
+    home: abs('home', 'kim'),
+    projectRoot: abs('work', 'thing'),
+  });
   assertEquals(user.path, join(abs('home', 'kim'), '.claude', 'settings.json'));
-  assertEquals(user.rules, ['Read(~/.config/jira-fetch/**)', 'Edit(~/.config/jira-fetch/**)']);
+  // The cache is a separate directory, so the config pattern does not reach it and it gets its
+  // own pair: it holds a project's whole people list, and its field list takes part in resolving
+  // `field:` predicates.
+  assertEquals(user.rules, [
+    'Read(~/.config/jira-fetch/**)',
+    'Edit(~/.config/jira-fetch/**)',
+    'Read(~/.cache/jira-fetch/**)',
+    'Edit(~/.cache/jira-fetch/**)',
+  ]);
   assertEquals(project.path, join(abs('work', 'thing'), '.claude', 'settings.local.json'));
   assertEquals(project.rules, ['Bash(jira-fetch setup:*)']);
 });

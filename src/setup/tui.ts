@@ -26,6 +26,9 @@ const TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 export type SetupOptions = {
   configPath: string;
   configDir: string;
+  /** Where this project's Jira metadata is cached. Needed here only so the deny rules can name
+   * it: `setup` reads and writes nothing in it. */
+  cacheDir: string;
   projectRoot: string;
   home: string;
 };
@@ -186,7 +189,13 @@ const offerDenyRules = async (opts: SetupOptions): Promise<void> => {
   const answer = choose('Write those deny rules?', ['yes', 'no']);
   if (answer !== 'yes') return;
 
-  for (const target of denyTargets(opts.configDir, opts.home, opts.projectRoot)) {
+  const targets = denyTargets({
+    configDir: opts.configDir,
+    cacheDir: opts.cacheDir,
+    home: opts.home,
+    projectRoot: opts.projectRoot,
+  });
+  for (const target of targets) {
     try {
       const outcome = await applyDenyRules(target);
       say(

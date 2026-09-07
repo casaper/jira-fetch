@@ -103,6 +103,7 @@ export const formatShow = (
     projectKey?: string;
     fetchedAt?: number;
     state?: string;
+    notes?: CacheNote[];
     count?: number;
   }>,
   now: number,
@@ -123,8 +124,16 @@ export const formatShow = (
     const stale = now - entry.fetchedAt > RESOURCES[entry.resource].ttlMs
       ? ' — due for a refresh'
       : '';
-    const count = entry.count === undefined ? '' : `${String(entry.count).padStart(5)}  `;
-    return `  ${label.padEnd(width)}  ${count}${age} old${stale}`;
+    // A partial entry shows a dash rather than its count, for the same reason the refresh report
+    // does: `sprints 0` reads as "this project has no sprints" when what happened was that nobody
+    // could find out. The reason follows, so the line answers the question it raises.
+    const partial = entry.state === 'partial';
+    const shown = partial && !entry.count ? '—' : String(entry.count ?? '');
+    const count = entry.count === undefined && !partial ? '' : `${shown.padStart(5)}  `;
+    const why = partial && entry.notes?.length
+      ? ` — ${entry.notes.map(describeNote).join('; ')}`
+      : '';
+    return `  ${label.padEnd(width)}  ${count}${age} old${stale}${why}`;
   });
 };
 

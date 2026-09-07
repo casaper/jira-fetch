@@ -38,3 +38,21 @@ Deno.test('neither page needs a wide terminal', () => {
     assert(wide.length === 0, `too wide: ${wide.join(' | ')}`);
   }
 });
+
+Deno.test('the CLI page documents the cache and its flags', () => {
+  assertStringIncludes(HELP, 'jira-fetch cache');
+  for (const flag of ['--refresh', '--show', '--clear']) {
+    assertStringIncludes(HELP, flag);
+  }
+  // Where it is, in both spellings, because a user who wants to delete it needs to find it.
+  assertStringIncludes(HELP, '~/.cache/jira-fetch/');
+  assertStringIncludes(HELP, '%APPDATA%\\jira-fetch\\cache\\');
+});
+
+Deno.test('the MCP page still carries no cache usage', () => {
+  // The separation the two pages exist for: the cache is a CLI concern, and the server reads it
+  // without anyone needing to know that from this page.
+  for (const needle of ['--refresh', '--show', '--clear', 'jira-fetch cache']) {
+    assertFalse(MCP_HELP.includes(needle), `MCP_HELP should not mention ${needle}`);
+  }
+});

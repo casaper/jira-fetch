@@ -69,6 +69,7 @@ const show = async (deps: CacheCommandDeps): Promise<number> => {
       projectKey: ref.projectKey,
       fetchedAt: found?.fetchedAt,
       state: found?.state,
+      notes: found?.notes,
       count: Array.isArray(found?.data) ? found.data.length : undefined,
     });
   }
