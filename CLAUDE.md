@@ -501,6 +501,13 @@ and the ambiguity check still fires — an edit can add or remove fields but can
 cache at all, so the surface is one file. **Do not cache the resolved map as an optimisation**; that
 is the edit that would give the whole thing away.
 
+Both halves of that are now assertions rather than prose. `src/cache/surface_test.ts` walks `src/`
+and pins the complete list of modules that import anything under `src/cache/` — `main.ts` and the
+three in `src/setup/` — so a cache read added under `fetch/`, `mcp/`, `filter/` or `jira/` turns the
+suite red instead of quietly widening the surface. It also pins which three cache modules `main.ts`
+takes, and refuses a resolved-map-shaped thing in `fields.ts`. Both were checked by violating them,
+because a structural test that passes vacuously is worse than none.
+
 `jira-fetch cache` takes project keys and is the one subcommand with positional arguments. It is
 deliberately non-interactive: a command that can be scripted is also one the e2e suite can drive end
 to end. With no keys it reuses the manifest's selection, and with neither it says so rather than
