@@ -283,7 +283,7 @@ hold every person your projects can assign to, and the field list in it takes pa
 field a `field:` filter means.
 
 These stop the well-behaved path and are worth having for that, but they do not reach a script that
-opens the file itself, and an agent with a shell can edit the settings files too.
+opens either file itself, and an agent with a shell can edit the settings files too.
 
 </details>
 
