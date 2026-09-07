@@ -190,6 +190,31 @@ Deno.test('a field is replaced rather than added twice', () => {
   assertEquals(removeField(draft, 'Team').field, [{ name: 'Status', values: ['Done'] }]);
 });
 
+Deno.test('a field re-picked under its other spelling replaces the entry, not adds one', () => {
+  // The regression the id change could have introduced. A config written by hand says `Team`; the
+  // menu records `customfield_10101`. Matching on the string alone appends, and the saved rule then
+  // carries two conditions on one field, ANDed — which is not what anybody chose.
+  const same = (spelling: string) =>
+    spelling === 'customfield_10101' || spelling.toLowerCase() === 'team';
+
+  let draft = ruleToDraft({ field: { Team: ['Platform'] } });
+  assertEquals(draft.field, [{ name: 'Team', values: ['Platform'] }]);
+
+  draft = setFieldValues(draft, 'customfield_10101', ['Data'], same);
+  assertEquals(draft.field, [{ name: 'customfield_10101', values: ['Data'] }]);
+  assertEquals(Object.keys(draftToRule(draft)?.field ?? {}), ['customfield_10101']);
+
+  // And it goes in place, so the order predicates were added in survives.
+  let ordered = ruleToDraft({ field: { Team: ['Platform'], status: ['Done'] } });
+  ordered = setFieldValues(ordered, 'customfield_10101', ['Data'], same);
+  assertEquals(ordered.field.map((entry) => entry.name), ['customfield_10101', 'status']);
+
+  assertEquals(removeField(ordered, 'customfield_10101', same).field, [{
+    name: 'status',
+    values: ['Done'],
+  }]);
+});
+
 Deno.test('what the menu builds decides tickets the way the menu said it would', () => {
   // The only test here that runs from a choice all the way to a filter decision.
   const issue = {

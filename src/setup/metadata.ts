@@ -28,7 +28,7 @@ import {
 import type { CacheNote } from '../cache/schema.ts';
 import { describeNote } from '../cache/report.ts';
 import type { FieldInfo, MetadataView, NamedValue, Resource } from './metadata_view.ts';
-import type { NameLookup } from './filter_render.ts';
+import type { LabelLookup } from './filter_render.ts';
 
 export type MetadataDeps = {
   cacheDir: string;
@@ -241,9 +241,17 @@ export const loadMetadataView = async (deps: MetadataDeps): Promise<MetadataView
   };
 };
 
-/** Resolves an accountId to a display name using what was read, so a stored rule reads as people
- * rather than as ids. */
-export const nameLookup = (view: MetadataView): NameLookup => {
+/**
+ * Resolves the opaque ids a rule is recorded with back to display labels, so a stored rule reads as
+ * people and fields rather than as ids.
+ *
+ * Both kinds in one map. The file records an accountId for a person and an id for a field —
+ * neither is readable, and both are deliberate: a display name is neither stable nor unique, and a
+ * field id is what makes a `field:` predicate immune to a tampered catalogue. Undoing that on the
+ * screen as well would be paying the cost twice.
+ */
+export const labelLookup = (view: MetadataView): LabelLookup => {
   const byId = new Map(view.users.items.map((person) => [person.value, person.label]));
-  return (accountId: string): string | undefined => byId.get(accountId);
+  for (const field of view.fields.items) byId.set(field.id, field.name);
+  return (id: string): string | undefined => byId.get(id);
 };

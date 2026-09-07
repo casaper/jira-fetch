@@ -25,6 +25,7 @@ import {
   type FiltersDraft,
   filtersToDraft,
   type PredicateKey,
+  removeField,
   type RuleDraft,
   setFieldValues,
 } from './filter_draft.ts';
@@ -33,6 +34,7 @@ import {
   COMMON_FIELDS,
   fieldChoiceList,
   filtersToLines,
+  findField,
   nothingAvailable,
   predicateRows,
   resourceReport,
@@ -40,10 +42,10 @@ import {
   testTitle,
   valueChoiceList,
 } from './filter_render.ts';
-import type { ChoiceList, NameLookup } from './filter_render.ts';
+import type { ChoiceList, LabelLookup } from './filter_render.ts';
 import { ensureCache } from './ensure_cache.ts';
 import type { ProjectChoice } from './ensure_cache.ts';
-import { loadMetadataView, nameLookup } from './metadata.ts';
+import { labelLookup, loadMetadataView } from './metadata.ts';
 import type { MetadataView, NamedValue, Resource } from './metadata_view.ts';
 import { askText, check, confirm, hasTerminal, type Item, pick, rule, say } from './prompts.ts';
 
@@ -141,7 +143,10 @@ const valuesFor = (
 ): ChoiceList => valueChoiceList(resource, selected, { absentLabel });
 
 /** Which resource a field's values should be offered from, where the field is a built-in that the
- * cache tracks separately. Anything else falls back to the field's own `allowedValues`. */
+ * cache tracks separately. Anything else falls back to the field's own `allowedValues`.
+ *
+ * Keyed on the **display name**, deliberately, even though the rule records the id: a built-in's id
+ * is not its name (`Issue Type` is `issuetype`), and `Sprint` is a custom field id entirely. */
 const resourceForField = (view: MetadataView, name: string): Resource<NamedValue> | undefined => {
   switch (name.toLowerCase()) {
     case 'status':
@@ -205,8 +210,8 @@ const editFieldPredicate = async (
 ): Promise<RuleDraft> => {
   const list = fieldChoiceList(view.fields, COMMON_FIELDS);
   if (list.note) say(`  ${list.note}`);
-  say('  A name is resolved against this Jira site. One that does not exist, or that two fields');
-  say('  share, stops the run — a condition that quietly matches nothing is worse.');
+  say('  Recorded by id and shown by name. A field the site does not have, or one that two fields');
+  say('  share the name of, stops the run — a condition that quietly matches nothing is worse.');
 
   const items: Array<Item<string | Back>> = list.items.map((choice) => ({
     value: choice.value,
@@ -214,16 +219,25 @@ const editFieldPredicate = async (
   }));
   items.push(rule(), { value: BACK, name: '‹ back' });
 
-  const name = await pick<string | Back>({
+  const picked = await pick<string | Back>({
     message: '  Which field',
     items,
     search: list.items.length > 8,
   });
-  if (name === BACK) return draft;
+  if (picked === BACK) return draft;
 
-  const existing = draft.field.find((entry) => entry.name === name)?.values ?? [];
-  const resource = resourceForField(view, name);
-  const own = view.fields.items.find((field) => field.name === name || field.id === name);
+  // The picker hands back an id; a draft loaded from a hand-written config may hold a display name.
+  // Both spellings are the same predicate, so resolving here is what stops an already-configured
+  // field opening with nothing ticked and a save producing two entries for it.
+  const own = findField(view.fields, picked);
+  const key = own?.id ?? picked;
+  const shown = own?.name ?? picked;
+  const same = (spelling: string): boolean =>
+    spelling.toLowerCase() === key.toLowerCase() ||
+    (own !== undefined && spelling.toLowerCase() === own.name.toLowerCase());
+
+  const existing = draft.field.find((entry) => same(entry.name))?.values ?? [];
+  const resource = resourceForField(view, shown);
   const valueList = resource
     ? valuesFor(resource, existing, '(absent — the field is unset)')
     : own?.allowedValues
@@ -235,24 +249,24 @@ const editFieldPredicate = async (
     : valuesFor(
       {
         status: 'unavailable',
-        reason: `this site does not publish the values for "${name}", so they are typed`,
+        reason: `this site does not publish the values for "${shown}", so they are typed`,
         items: [],
       },
       existing,
       '(absent — the field is unset)',
     );
 
-  const values = await pickValues(`  Accepted values for ${name}`, valueList, 'value');
+  const values = await pickValues(`  Accepted values for ${shown}`, valueList, 'value');
   return values.length === 0
-    ? { ...draft, field: draft.field.filter((entry) => entry.name !== name) }
-    : setFieldValues(draft, name, values);
+    ? removeField(draft, key, same)
+    : setFieldValues(draft, key, values, same);
 };
 
 /** One rule, edited until it is done or abandoned. */
 const editRule = async (
   initial: RuleDraft,
   view: MetadataView,
-  names: NameLookup,
+  labels: LabelLookup,
   what: 'include' | 'exclude',
 ): Promise<RuleDraft | undefined> => {
   let draft = initial;
@@ -265,7 +279,7 @@ const editRule = async (
     );
     say('Every condition below must hold for this rule to match.');
 
-    const rows = predicateRows(draft, names);
+    const rows = predicateRows(draft, labels);
     const width = Math.max(...rows.map((row) => row.label.length));
     const items: Array<Item<PredicateKey | 'done' | 'cancel'>> = rows.map((row) => ({
       value: row.key,
@@ -338,7 +352,7 @@ const editRule = async (
 const editRuleList = async (
   drafts: RuleDraft[],
   view: MetadataView,
-  names: NameLookup,
+  labels: LabelLookup,
   what: 'include' | 'exclude',
 ): Promise<RuleDraft[]> => {
   let rules = [...drafts];
@@ -347,7 +361,7 @@ const editRuleList = async (
       const asRule = draftToRule(draft);
       return {
         value: index,
-        name: asRule ? ruleToText(asRule, names) : 'nothing set',
+        name: asRule ? ruleToText(asRule, labels) : 'nothing set',
       };
     });
     items.push(rule());
@@ -358,7 +372,7 @@ const editRuleList = async (
     if (chosen === 'back') return rules;
 
     if (chosen === 'add') {
-      const built = await editRule(emptyRuleDraft(), view, names, what);
+      const built = await editRule(emptyRuleDraft(), view, labels, what);
       if (built) rules = [...rules, built];
       continue;
     }
@@ -374,7 +388,7 @@ const editRuleList = async (
     if (action === 'remove') {
       rules = rules.filter((_, index) => index !== chosen);
     } else if (action === 'edit') {
-      const edited = await editRule(rules[chosen], view, names, what);
+      const edited = await editRule(rules[chosen], view, labels, what);
       rules = edited
         ? rules.map((existing, index) => index === chosen ? edited : existing)
         : rules.filter((_, index) => index !== chosen);
@@ -501,7 +515,7 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
     }
   }
 
-  let names = nameLookup(view);
+  let labels = labelLookup(view);
   let draft: FiltersDraft = filtersToDraft(file.filters);
 
   say();
@@ -511,7 +525,7 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   for (;;) {
     const current = draftToFilters(draft);
     say();
-    for (const line of filtersToLines(current, names)) say(line);
+    for (const line of filtersToLines(current, labels)) say(line);
 
     const chosen = await pick<
       'include' | 'exclude' | 'comments' | 'projects' | 'save' | 'quit'
@@ -548,11 +562,11 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
       return 0;
     }
     if (chosen === 'include') {
-      draft = { ...draft, include: await editRuleList(draft.include, view, names, 'include') };
+      draft = { ...draft, include: await editRuleList(draft.include, view, labels, 'include') };
       continue;
     }
     if (chosen === 'exclude') {
-      draft = { ...draft, exclude: await editRuleList(draft.exclude, view, names, 'exclude') };
+      draft = { ...draft, exclude: await editRuleList(draft.exclude, view, labels, 'exclude') };
       continue;
     }
     if (chosen === 'comments') {
@@ -563,14 +577,14 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
       loaded = await load(chooseProjects);
       view = loaded.view;
       projectKeys = loaded.projectKeys;
-      names = nameLookup(view);
+      labels = labelLookup(view);
       continue;
     }
 
     const filters = draftToFilters(draft);
     say();
     say('Save these filters?');
-    for (const line of filtersToLines(filters, names)) say(line);
+    for (const line of filtersToLines(filters, labels)) say(line);
     say();
     say('  Nothing has been written yet.');
 

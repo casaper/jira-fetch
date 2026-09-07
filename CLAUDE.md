@@ -715,6 +715,22 @@ the ids, and a raw id always resolves unambiguously. Do not soften this back int
 grounds that a config might be shared across sites — the same block is what an agent's access is
 decided by.
 
+**`jira-fetch filters` records ids, never display names** (`fieldChoiceList` in
+`src/setup/filter_render.ts`), and labels them with the name on screen. That is the one mitigation
+available for the cache being tamperable: `buildResolver` matches an exact id before any display
+name and treats an id the catalogue lacks as a problem, so a rule naming an id **fails closed** — a
+rewritten `site/fields.json` can force a refusal but cannot point the predicate at a different
+field. A rule naming `Team` has no such guarantee, which is why the menu no longer writes one. The
+price is a config saying `customfield_10050` where a reader would rather see `Team`, and it is paid
+deliberately: **do not restore the readability by recording the name**, the same way the resolved
+name-to-id map must not be cached. A hand-written name still resolves, so nothing existing breaks.
+
+Because both spellings are live, `findField` (`src/setup/filter_render.ts`) mirrors `buildResolver`
+exactly — id first, a name only when unique, both case-insensitive — and `setFieldValues` takes the
+"same field" test as a parameter. Without that, re-picking a field a hand-written config named `Team`
+would append `customfield_10101` beside it: two conditions on one field, ANDed, which is nobody's
+intent. `src/setup/filter_draft_test.ts` pins it.
+
 **It checks the live field list once before it refuses.** The catalogue it resolves against comes
 from the cache, and a field renamed on the site since that entry was written reads as one that does
 not exist — so refusing on the first answer would be refusing on an artefact. One request, on the

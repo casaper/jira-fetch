@@ -12,7 +12,7 @@ import {
 } from '../cache/schema.ts';
 import type { CacheNote } from '../cache/schema.ts';
 import { writeEntry } from '../cache/store.ts';
-import { loadMetadataView, nameLookup } from './metadata.ts';
+import { labelLookup, loadMetadataView } from './metadata.ts';
 
 const PROJECT = '/Users/kim/code/thing';
 const SITE = 'https://site.atlassian.net';
@@ -161,9 +161,27 @@ Deno.test('a person is keyed by account id and labelled by name', async () => {
     // No email on a site that hides them; the entry is still usable.
     assertEquals(view.users.items[1], { value: '7c3d4e', label: 'Jo Bloggs' });
 
-    const names = nameLookup(view);
-    assertEquals(names('5f1a2b'), 'Kim Doe');
-    assertEquals(names('unknown'), undefined);
+    const labels = labelLookup(view);
+    assertEquals(labels('5f1a2b'), 'Kim Doe');
+    assertEquals(labels('unknown'), undefined);
+  });
+});
+
+Deno.test('the label lookup covers field ids as well as people', async () => {
+  // Both kinds, one map. A rule records an accountId for a person and an id for a field — neither
+  // is readable, and a review screen showing `customfield_10050` would pay for that twice.
+  await withDir(async (dir) => {
+    await put(dir, FieldsEntry, 'fields', undefined, [
+      { id: 'customfield_10050', name: 'Team' },
+    ]);
+    await put(dir, UsersEntry, 'users', 'DN', [
+      { accountId: '5f1a2b', displayName: 'Kim Doe' },
+    ]);
+    const labels = labelLookup(await load(dir, ['DN']));
+
+    assertEquals(labels('customfield_10050'), 'Team');
+    assertEquals(labels('5f1a2b'), 'Kim Doe');
+    assertEquals(labels('customfield_99999'), undefined);
   });
 });
 
