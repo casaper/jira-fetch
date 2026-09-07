@@ -1,7 +1,8 @@
 /** Entry point: resolve configuration, enumerate candidate issues, and write one Markdown
  * document per issue that survives the filters. */
 
-import { type Args, HELP, parseCliArgs, UsageError, VERSION } from './cli/args.ts';
+import { type Args, parseCliArgs, UsageError, VERSION } from './cli/args.ts';
+import { HELP, MCP_HELP } from './cli/help.ts';
 import { type Config, ConfigError, loadProjectConfig, resolveConfig } from './config/config.ts';
 import { configPathFor, findProjectRoot, userConfigDir } from './config/location.ts';
 import { JiraClient, JiraError } from './jira/client.ts';
@@ -102,7 +103,7 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
   }
 
   if (args.help) {
-    console.log(HELP);
+    console.log(args.help === 'mcp' ? MCP_HELP : HELP);
     return EXIT.ok;
   }
   if (args.version) {
