@@ -47,10 +47,9 @@ directory, outside every repository:
 | macOS, Linux | `~/.config/jira-fetch/<project-path>.yml`                                            |
 | Windows      | `%APPDATA%\jira-fetch\<project-path>.yml` (that is `%USERPROFILE%\AppData\Roaming\`) |
 
-The filename is derived from the git repository you are in, so you never have to pick it — and
-there is nothing to pass: no environment variables, no flags naming a file, and no config file
-inside the project. That is deliberate, and [the MCP server](#mcp-server) is
-why. `jira-fetch` must be run inside a git repository, since the repository root names the file.
+The file is named after the git repository root, so you never pick it and there is nothing to pass:
+no environment variables, no flags, no config file in the project. `jira-fetch` therefore runs only
+inside a repository. [The MCP server](#mcp-server) is why it works this way.
 
 ```sh
 jira-fetch setup          # create or change it, interactively
