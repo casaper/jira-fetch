@@ -13,7 +13,7 @@
 import type { z } from 'zod';
 import { type JiraClient, JiraError } from '../jira/client.ts';
 import type { FieldMetadata, JiraUser } from '../jira/types.ts';
-import { type Resource, RESOURCES } from './policy.ts';
+import type { Resource } from './policy.ts';
 import {
   BoardsEntry,
   type CachedFieldOptions,
@@ -482,6 +482,3 @@ export const refreshAll = async (
  * what "unavailable" means: partial with nothing in it. */
 export const unavailable = (report: RefreshReport): ResourceOutcome[] =>
   report.outcomes.filter((outcome) => outcome.state === 'partial' && outcome.count === 0);
-
-/** Every resource the cache knows about, for a caller that wants to report on all of them. */
-export const allResources = Object.keys(RESOURCES) as Resource[];

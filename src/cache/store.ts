@@ -19,6 +19,7 @@ import {
   RESOURCES,
 } from './policy.ts';
 import {
+  AnyEntryEnvelope,
   type CacheManifest,
   CacheManifest as ManifestSchema,
   type CacheNote,
@@ -184,6 +185,23 @@ export const writeManifest = async (
     throw new Error(`refusing to write an invalid manifest: ${parsed.error.message}`);
   }
   await writeAtomic(cacheDir, MANIFEST_FILE, JSON.stringify(parsed.data, null, 2));
+};
+
+/**
+ * What is in one file, without interpreting its payload — for reporting rather than for use.
+ *
+ * Deliberately does not check the TTL: `--show` wants to say how old something is, and treating a
+ * stale entry as absent would hide exactly what the reader asked about.
+ */
+export const peekEntry = async (
+  cacheDir: string,
+  resource: Resource,
+  projectKey?: string,
+): Promise<AnyEntryEnvelope | undefined> => {
+  const read = await readJson(join(cacheDir, resourceFileName(resource, projectKey)));
+  if ('miss' in read) return undefined;
+  const parsed = AnyEntryEnvelope.safeParse(read.data);
+  return parsed.success ? parsed.data : undefined;
 };
 
 /** Removes a project's cache directory. Absent is success: the point is that it is gone. */

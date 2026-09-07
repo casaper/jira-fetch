@@ -119,3 +119,22 @@ export const pinMismatch = (
   if (pinned.baseUrl !== expected.baseUrl) return 'wrongSite';
   return undefined;
 };
+
+/** Every entry a chosen set of projects implies: the site-wide resources once, and each
+ * project-scoped one per key. Used by `--show`, so the report covers what is missing as well as
+ * what is there. */
+export const allResourceRefs = (
+  projectKeys: string[],
+): Array<{ resource: Resource; projectKey?: string }> => {
+  const resources = Object.keys(RESOURCES) as Resource[];
+  const refs: Array<{ resource: Resource; projectKey?: string }> = [];
+  for (const resource of resources) {
+    if (RESOURCES[resource].scope === 'site') refs.push({ resource });
+  }
+  for (const projectKey of projectKeys) {
+    for (const resource of resources) {
+      if (RESOURCES[resource].scope === 'project') refs.push({ resource, projectKey });
+    }
+  }
+  return refs;
+};

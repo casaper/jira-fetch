@@ -12,19 +12,13 @@
  */
 
 import { z } from 'zod';
+import { PROJECT_KEY } from '../cli/args.ts';
 
 /** Bumped when any shape below changes incompatibly. An entry carrying a different version is a
  * miss, so an old cache is refetched rather than misread — there is no migration to write. */
 export const SCHEMA_VERSION = 1;
 
-/**
- * A Jira project key, as it appears in an issue key.
- *
- * Shape-checked because it lands in two places that must not take arbitrary text: a filename, and
- * a path segment of `GET /rest/api/3/issue/createmeta/{key}/issuetypes`. That is the same hazard
- * `ISSUE_KEY` exists for on the way into `GET /rest/api/3/issue/{key}`.
- */
-export const PROJECT_KEY = /^[A-Z][A-Z0-9_]{0,30}$/;
+export { PROJECT_KEY } from '../cli/args.ts';
 
 /**
  * Why an entry is not the whole truth.
@@ -159,6 +153,25 @@ export const FieldOptionsEntry = entry(z.array(CachedFieldOptions));
  * Owned by the `cache` command alone. Nothing on the fetch path reads or writes it, so a run that
  * only needs the field list cannot clobber a project selection.
  */
+/**
+ * Any entry, with its payload left alone.
+ *
+ * `--show` reports on what is cached without needing to know what each resource holds, and reading
+ * every payload through its own schema just to count it would mean a resource-to-schema table whose
+ * only purpose is that report. `z.unknown()` for the data, and the count comes from the array
+ * length when it is one.
+ */
+export const AnyEntryEnvelope = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  project: z.string().min(1),
+  baseUrl: z.string().min(1),
+  resource: z.string().min(1),
+  fetchedAt: z.number().int().positive(),
+  state: z.enum(['ok', 'partial']),
+  notes: z.array(CacheNote).max(50),
+  data: z.unknown(),
+});
+
 export const CacheManifest = z.strictObject({
   schemaVersion: z.literal(SCHEMA_VERSION),
   project: z.string().min(1),
@@ -178,4 +191,5 @@ export type CachedBoard = z.infer<typeof CachedBoard>;
 export type CachedFieldOptions = z.infer<typeof CachedFieldOptions>;
 export type FieldsEntry = z.infer<typeof FieldsEntry>;
 export type ProjectsEntry = z.infer<typeof ProjectsEntry>;
+export type AnyEntryEnvelope = z.infer<typeof AnyEntryEnvelope>;
 export type CacheManifest = z.infer<typeof CacheManifest>;
