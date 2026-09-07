@@ -249,11 +249,9 @@ setup.
 - **It cannot reach the credentials.** The token is in that one file and nowhere else — not in the
   environment its shell inherits, and not in any flag it could pass.
 
-**But none of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
-"$(jira-fetch config-file)"` is not a trick, it is a command. What the design buys is that the
-policy and the credential are not things the agent meets in the course of its work; reaching either
-means deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's
-side: an API token belonging to an account that cannot see what you do not want read.
+**But this is not a sandbox.** The server runs as you, and so does the agent's shell — `cat
+"$(jira-fetch config-file)"` is a command, not a trick. The only **hard** boundary is on Atlassian's
+side, so use a token whose account cannot see what you do not want read.
 
 The guarantee is also about **what the server will fetch**, not what an agent can read. Filters are
 evaluated at fetch time, so tightening them later does not remove documents already written, and
