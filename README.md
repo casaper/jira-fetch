@@ -72,14 +72,6 @@ email: you@example.com
 token: ATATT3xFfGF0...
 ```
 
-The directory is created `0700` and the file `0600`. On Windows there is nothing to set: everything
-under `%APPDATA%` already inherits an ACL granting only you, `SYSTEM` and `Administrators`.
-
-Two repository paths can land on the same filename, which is why the file carries a `project` key:
-the tool compares it against the repository it is actually in and stops with exit 2 rather than
-applying another project's filters. Run `jira-fetch setup` in the second project to write its own
-file.
-
 ## Usage
 
 ```
