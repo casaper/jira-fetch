@@ -193,3 +193,129 @@ Deno.test('a network failure is retried and then reported', async () => {
   assertEquals(calls.length, 3);
   assertStringIncludes(error.message, 'connection refused');
 });
+
+/** `startAt` as the endpoint saw it, so a test can assert the loop advanced. */
+const startAtOf = (url: string): number => Number(new URL(url).searchParams.get('startAt'));
+
+Deno.test('a paginated collection stops when the envelope says it is the last page', async () => {
+  const { client, calls } = stub((call) =>
+    json(
+      startAtOf(call.url) === 0
+        ? { values: [{ key: 'DN' }, { key: 'SUP' }], isLast: false }
+        : { values: [{ key: 'OPS' }], isLast: true },
+    )
+  );
+  const { items, truncated } = await client.searchProjects();
+  assertEquals(items.map((p) => p.key), ['DN', 'SUP', 'OPS']);
+  assertFalse(truncated);
+  assertEquals(calls.length, 2);
+  assertEquals(startAtOf(calls[1].url), 2);
+});
+
+Deno.test('a paginated collection stops when total is reached', async () => {
+  const { client, calls } = stub((call) =>
+    json({ values: startAtOf(call.url) === 0 ? [{ name: 'High' }, { name: 'Low' }] : [], total: 2 })
+  );
+  const { items } = await client.getPriorities();
+  assertEquals(items.map((p) => p.name), ['High', 'Low']);
+  assertEquals(calls.length, 1);
+});
+
+Deno.test('a bare-array endpoint stops on a short page', async () => {
+  // The only signal these give: no isLast, no total, just fewer items than asked for.
+  const { client, calls } = stub(() => json([{ accountId: 'a' }, { accountId: 'b' }]));
+  const { items, truncated } = await client.getAssignableUsers('DN');
+  assertEquals(items.length, 2);
+  assertFalse(truncated);
+  assertEquals(calls.length, 1);
+});
+
+Deno.test('a bare-array endpoint keeps paging while pages come back full', async () => {
+  const { client, calls } = stub((call) =>
+    json(
+      startAtOf(call.url) < 50
+        ? Array.from({ length: 50 }, (_, i) => ({ accountId: `a${i}` }))
+        : [],
+    )
+  );
+  const { items } = await client.getAssignableUsers('DN');
+  assertEquals(items.length, 50);
+  assertEquals(calls.length, 2);
+});
+
+Deno.test('a server that never advances is truncated, not a hang', async () => {
+  // The reason every loop here is bounded. What arrived is still worth caching, so the bound is
+  // reported rather than thrown, and the caller records the resource as partial.
+  const { client, calls } = stub(() =>
+    json({ values: Array.from({ length: 50 }, (_, i) => ({ name: `p${i}` })), isLast: false })
+  );
+  const { items, truncated } = await client.getPriorities();
+  assert(truncated, 'expected the page bound to be reported');
+  assertEquals(calls.length, 1000);
+  assertEquals(items.length, 50_000);
+});
+
+Deno.test('createmeta collections are read under their own keys', async () => {
+  // These two do not spell the collection `values`, and guessing wrong would look like a working
+  // call that found nothing.
+  const types = stub(() => json({ issueTypes: [{ id: '10001', name: 'Bug' }], total: 1 }));
+  assertEquals((await types.client.getCreateMetaIssueTypes('DN')).items[0].name, 'Bug');
+
+  const fields = stub(() =>
+    json({ fields: [{ key: 'customfield_1', name: 'Team', allowedValues: [] }], total: 1 })
+  );
+  assertEquals((await fields.client.getCreateMetaFields('DN', '10001')).items[0].name, 'Team');
+});
+
+Deno.test('statuses arrive grouped by issue type and are flattened', async () => {
+  const { client } = stub(() =>
+    json([
+      { id: '10001', statuses: [{ id: '1', name: 'To Do' }, { id: '3', name: 'Done' }] },
+      { id: '10002', statuses: [{ id: '3', name: 'Done' }] },
+    ])
+  );
+  assertEquals((await client.getProjectStatuses('DN')).map((s) => s.name), [
+    'To Do',
+    'Done',
+    'Done',
+  ]);
+});
+
+Deno.test('versions come from the paginated singular endpoint', async () => {
+  // /version pages; /versions returns the lot and ignores startAt, which reads as a working call
+  // that silently drops everything past the first page.
+  const { client, calls } = stub(() => json({ values: [{ name: '1.0' }], isLast: true }));
+  await client.getProjectVersions('DN');
+  assertStringIncludes(calls[0].url, '/rest/api/3/project/DN/version?');
+  assertFalse(calls[0].url.includes('/versions'));
+});
+
+Deno.test('boards and sprints go to the Agile API, not the platform one', async () => {
+  const boards = stub(() => json({ values: [{ id: 7, name: 'DN board' }], isLast: true }));
+  await boards.client.getBoards('DN');
+  assertStringIncludes(boards.calls[0].url, '/rest/agile/1.0/board?projectKeyOrId=DN');
+
+  const sprints = stub(() => json({ values: [{ id: 3, name: 'Sprint 3' }], isLast: true }));
+  await sprints.client.getSprints(7);
+  assertStringIncludes(sprints.calls[0].url, '/rest/agile/1.0/board/7/sprint?');
+});
+
+Deno.test('a metadata endpoint that is forbidden surfaces its status', async () => {
+  // The client classifies nothing: 403 stays a JiraError with .status, and src/cache/ decides what
+  // that means for the resource.
+  const { client } = stub(() => new Response('{"errorMessages":["no"]}', { status: 403 }));
+  const error = await assertRejects(() => client.getLabels(), JiraError);
+  assertEquals(error.status, 403);
+});
+
+Deno.test('a metadata endpoint answering HTML with a 200 fails to parse', async () => {
+  // A wrong host, or an SSO portal. There is no declared mime type to compare against here the way
+  // an attachment has, so this surfaces as a parse failure the cache records as notJson.
+  const { client } = stub(() =>
+    new Response('<html><body>Sign in</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })
+  );
+  await assertRejects(() => client.getLabels());
+});

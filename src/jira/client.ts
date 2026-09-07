@@ -1,7 +1,19 @@
 /** Jira Cloud REST v3 client. */
 
 import { encodeBase64 } from '@std/encoding/base64';
-import type { IssueRef, JiraComment, JiraFieldMeta, JiraIssue } from './types.ts';
+import type {
+  AgileBoard,
+  AgileSprint,
+  FieldMetadata,
+  IssueRef,
+  JiraComment,
+  JiraFieldMeta,
+  JiraIssue,
+  JiraUser,
+  NamedRef,
+  ProjectDetails,
+  StatusDetails,
+} from './types.ts';
 
 export class JiraError extends Error {
   override readonly name = 'JiraError';
@@ -168,6 +180,177 @@ export class JiraClient {
   getFields(): Promise<JiraFieldMeta[]> {
     this.fieldCache ??= this.json<JiraFieldMeta[]>('/rest/api/3/field');
     return this.fieldCache;
+  }
+
+  /**
+   * One paginated collection, however the endpoint spells pagination.
+   *
+   * Jira is not consistent about this and the inconsistency is not worth a method each: some
+   * endpoints answer a bare array, some an envelope keyed `values`, and createmeta keys its two
+   * collections `issueTypes` and `fields`. So the batch is whichever of `keys` is present, or the
+   * body itself when it is already an array.
+   *
+   * Bounded by MAX_PAGES for the same reason `getComments` is — a server that ignores `startAt`
+   * would otherwise loop for ever, and this binary ships to other people. Hitting the bound is
+   * reported rather than thrown: what arrived is still worth caching, and the caller records it as
+   * partial.
+   */
+  private async paged<T>(
+    makePath: (startAt: number) => string,
+    pageSize: number,
+    keys: readonly string[] = ['values'],
+  ): Promise<{ items: T[]; truncated: boolean }> {
+    const out: T[] = [];
+    let startAt = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const body = await this.json<unknown>(makePath(startAt));
+
+      let batch: T[] = [];
+      let isLast: boolean | undefined;
+      let total: number | undefined;
+
+      if (Array.isArray(body)) {
+        batch = body as T[];
+      } else if (body !== null && typeof body === 'object') {
+        const record = body as Record<string, unknown>;
+        const key = keys.find((candidate) => Array.isArray(record[candidate]));
+        if (key) batch = record[key] as T[];
+        if (typeof record.isLast === 'boolean') isLast = record.isLast;
+        if (typeof record.total === 'number') total = record.total;
+      }
+
+      out.push(...batch);
+      startAt += batch.length;
+
+      // Any one of these means there is no next page.
+      if (batch.length === 0) return { items: out, truncated: false };
+      if (isLast === true) return { items: out, truncated: false };
+      if (total !== undefined && startAt >= total) return { items: out, truncated: false };
+      // A short batch is the only end-of-collection signal a bare array endpoint gives, so it has
+      // to count — but only where nothing better was said. An envelope answering `isLast: false`
+      // is telling us there is more, and believing the length instead would silently drop it.
+      if (isLast === undefined && batch.length < pageSize) {
+        return { items: out, truncated: false };
+      }
+    }
+    return { items: out, truncated: true };
+  }
+
+  /** Projects this token can see. The list the `cache` command offers to choose from. */
+  searchProjects(): Promise<{ items: ProjectDetails[]; truncated: boolean }> {
+    return this.paged<ProjectDetails>(
+      (startAt) => `/rest/api/3/project/search?startAt=${startAt}&maxResults=50`,
+      50,
+    );
+  }
+
+  /** Labels are site-wide, not per project: Jira has no per-project label list. */
+  getLabels(): Promise<{ items: string[]; truncated: boolean }> {
+    return this.paged<string>(
+      (startAt) => `/rest/api/3/label?startAt=${startAt}&maxResults=1000`,
+      1000,
+    );
+  }
+
+  getPriorities(): Promise<{ items: NamedRef[]; truncated: boolean }> {
+    return this.paged<NamedRef>(
+      (startAt) => `/rest/api/3/priority/search?startAt=${startAt}&maxResults=50`,
+      50,
+    );
+  }
+
+  /**
+   * The issue types a ticket can be created as in this project.
+   *
+   * From createmeta rather than `/issuetype`, because this is also the index the field values below
+   * are enumerated from, and createmeta needs only Browse Projects and Create Issues — where the
+   * field-context API that would otherwise give option values needs Administer Jira.
+   */
+  getCreateMetaIssueTypes(projectKey: string): Promise<{ items: NamedRef[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    return this.paged<NamedRef>(
+      (startAt) =>
+        `/rest/api/3/issue/createmeta/${key}/issuetypes?startAt=${startAt}&maxResults=50`,
+      50,
+      ['values', 'issueTypes'],
+    );
+  }
+
+  /** The fields of one issue type, each carrying the values it will accept. */
+  getCreateMetaFields(
+    projectKey: string,
+    issueTypeId: string,
+  ): Promise<{ items: FieldMetadata[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    const type = encodeURIComponent(issueTypeId);
+    return this.paged<FieldMetadata>(
+      (startAt) =>
+        `/rest/api/3/issue/createmeta/${key}/issuetypes/${type}` +
+        `?startAt=${startAt}&maxResults=100`,
+      100,
+      ['values', 'fields'],
+    );
+  }
+
+  /**
+   * Statuses, grouped by the issue type they belong to.
+   *
+   * createmeta never lists status — a status is not something an issue is created with — so this is
+   * the only place a project's statuses come from, and `field: {Status: [...]}` needs them.
+   */
+  async getProjectStatuses(projectKey: string): Promise<StatusDetails[]> {
+    const groups = await this.json<Array<{ statuses?: StatusDetails[] }>>(
+      `/rest/api/3/project/${encodeURIComponent(projectKey)}/statuses`,
+    );
+    return (Array.isArray(groups) ? groups : []).flatMap((group) => group.statuses ?? []);
+  }
+
+  getProjectComponents(projectKey: string): Promise<{ items: NamedRef[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    return this.paged<NamedRef>(
+      (startAt) => `/rest/api/3/project/${key}/components?startAt=${startAt}&maxResults=100`,
+      100,
+    );
+  }
+
+  /** `/version` rather than `/versions`: the singular one pages, the plural one returns the lot
+   * and ignores `startAt`, which reads as a working call that silently drops everything past the
+   * first page. */
+  getProjectVersions(projectKey: string): Promise<{ items: NamedRef[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    return this.paged<NamedRef>(
+      (startAt) => `/rest/api/3/project/${key}/version?startAt=${startAt}&maxResults=100`,
+      100,
+    );
+  }
+
+  /** People a ticket in this project can be assigned to — the candidates for a `reporter` or
+   * `assignee` rule. A bare array, so pagination stops on a short page. */
+  getAssignableUsers(projectKey: string): Promise<{ items: JiraUser[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    return this.paged<JiraUser>(
+      (startAt) =>
+        `/rest/api/3/user/assignable/search?project=${key}&startAt=${startAt}&maxResults=50`,
+      50,
+    );
+  }
+
+  /** Boards, from the Agile API. A site without Jira Software has none of this, which is a 404 the
+   * caller records rather than a failure. */
+  getBoards(projectKey: string): Promise<{ items: AgileBoard[]; truncated: boolean }> {
+    const key = encodeURIComponent(projectKey);
+    return this.paged<AgileBoard>(
+      (startAt) => `/rest/agile/1.0/board?projectKeyOrId=${key}&startAt=${startAt}&maxResults=50`,
+      50,
+    );
+  }
+
+  /** Sprints of one board. A Kanban board answers 400 here, because it has no sprints. */
+  getSprints(boardId: number): Promise<{ items: AgileSprint[]; truncated: boolean }> {
+    return this.paged<AgileSprint>(
+      (startAt) => `/rest/agile/1.0/board/${boardId}/sprint?startAt=${startAt}&maxResults=50`,
+      50,
+    );
   }
 }
 
