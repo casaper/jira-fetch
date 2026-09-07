@@ -1,4 +1,5 @@
-import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertThrows } from '@std/assert';
+import { join } from '@std/path';
 import { ConfigError } from '../config/errors.ts';
 import type { EnvReader } from '../config/location.ts';
 import { cacheDirFor, cacheKey, userCacheDir } from './location.ts';
@@ -73,15 +74,20 @@ Deno.test('cacheKey distinguishes paths that projectSlug would collide', async (
   assert(await cacheKey('/a/b_c') !== await cacheKey('/a_b/c'));
 });
 
-Deno.test('cacheDirFor joins the key onto the cache directory', async () => {
-  const dir = await cacheDirFor('abc', '/home/kim/.cache/jira-fetch');
-  assertEquals(dir, '/home/kim/.cache/jira-fetch/a9993e364706');
+Deno.test('cacheDirFor puts the key inside the cache directory it was given', async () => {
+  // Built with `join` rather than written out, because this one *does* use the host's separator:
+  // its directory argument came from `userCacheDir`, which already answered in the host's shape.
+  // A POSIX literal on the right-hand side would fail on Windows for a reason the test is not
+  // about — the same trap `configPathFor`'s test avoids the same way.
+  assertEquals(
+    await cacheDirFor('abc', join('home', 'kim', '.cache', 'jira-fetch')),
+    join('home', 'kim', '.cache', 'jira-fetch', 'a9993e364706'),
+  );
 });
 
-Deno.test('cacheDirFor rejects rather than returning a partial path', async () => {
-  // `crypto.subtle.digest` is the only thing here that can fail, and it cannot for a string
-  // input — so this asserts the shape of the contract rather than a reachable failure.
-  await assertRejects(async () => {
-    await cacheDirFor('x', await Promise.reject(new ConfigError('no cache dir')) as string);
-  }, ConfigError);
+Deno.test('two project roots never share a cache directory', async () => {
+  const dir = join('home', 'kim', '.cache', 'jira-fetch');
+  assert(
+    await cacheDirFor('/a/thing', dir) !== await cacheDirFor('/b/thing', dir),
+  );
 });

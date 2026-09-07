@@ -65,6 +65,12 @@ export const cacheKey = async (projectRoot: string): Promise<string> => {
     .slice(0, KEY_LENGTH);
 };
 
-/** The absolute path of a project's cache directory. The only place this name is constructed. */
+/**
+ * The absolute path of a project's cache directory. The only place this name is constructed.
+ *
+ * Joins with the **host's** separator, unlike `userCacheDir` above — and that is right rather than
+ * an oversight: `dir` has already been answered in the host's shape, so this is the same contract
+ * `configPathFor` has. It is `cacheKey` that is host-independent, not this.
+ */
 export const cacheDirFor = async (projectRoot: string, dir: string): Promise<string> =>
   join(dir, await cacheKey(projectRoot));
