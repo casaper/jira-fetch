@@ -252,7 +252,9 @@ clear if that matters to you.
   "permissions": {
     "deny": [
       "Read(~/.config/jira-fetch/**)",
-      "Edit(~/.config/jira-fetch/**)"
+      "Edit(~/.config/jira-fetch/**)",
+      "Read(~/.cache/jira-fetch/**)",
+      "Edit(~/.cache/jira-fetch/**)"
     ]
   }
 }
@@ -263,11 +265,15 @@ clear if that matters to you.
 { "permissions": { "deny": ["Bash(jira-fetch setup:*)"] } }
 ```
 
-The config-directory rules go at **user** scope deliberately: a deny at any scope beats an allow at
-any other, so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob` and
-the file reads Claude Code recognises inside Bash. `setup` merges them into whatever is already in
-those files and adds nothing on a second run — and it refuses to run without a terminal, which an
-agent's shell does not have.
+Both directories go at **user** scope deliberately: a deny at any scope beats an allow at any other,
+so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob` and the file
+reads Claude Code recognises inside Bash. `setup` merges them into whatever is already in those
+files and adds nothing on a second run — and it refuses to run without a terminal, which an agent's
+shell does not have.
+
+The configuration directory holds your token. The cache beside it holds no credentials, but it does
+hold every person your projects can assign to, and the field list in it takes part in deciding which
+field a `field:` filter means.
 
 These stop the well-behaved path and are worth having for that, but they do not reach a script that
 opens the file itself, and an agent with a shell can edit the settings files too.
