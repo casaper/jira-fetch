@@ -18,18 +18,13 @@ jira-fetch DN-1243 --out tmp
 # tmp/.DN-1243/screenshot_01.png
 ```
 
-The document is a plain Markdown file: machine-readable metadata in the frontmatter, a heading that
-links back to the ticket, the description as Markdown, then every comment appended after a `---`
-rule. The frontmatter carries only what the ticket actually has — a key you do not see is a value
-Jira did not have. Images and files from both the
-description and the comments are downloaded next to it and linked relatively, so the document stays
-readable offline and survives being moved with its asset directory.
+The document is a plain Markdown file: metadata in the frontmatter, a heading that links back to the
+ticket, the description as Markdown, then every comment after a `---` rule. The frontmatter carries
+only what the ticket actually has — a key you do not see is a value Jira did not have.
 
-Every attachment is downloaded, but only the ones actually embedded in the description or a comment
-get a link in the body — Jira's attachment panel holds files nobody ever referenced, and there is
-no place in the text to put them. Those still appear in the frontmatter's `assets` list, which is
-the complete index of what was fetched. So an `assets` entry with no matching link in the body is
-an attachment nobody embedded, not a broken link.
+Attachments are downloaded next to it and linked relatively, so it stays readable offline. Only the
+ones actually embedded in the description or a comment get a link in the body; the rest are still
+listed in the frontmatter's `assets`, the complete index of what was fetched.
 
 ## Install
 
@@ -37,9 +32,8 @@ an attachment nobody embedded, not a broken link.
 npm install -g jira-fetch
 ```
 
-That is the whole of it. npm downloads one prebuilt binary for your platform — nothing is compiled,
-and nothing needs Node or Deno once it is there; npm is only how it is delivered. macOS, Linux and
-Windows, on x64 and arm64.
+npm downloads one prebuilt binary for your platform — nothing is compiled, and nothing needs Node or
+Deno once it is there; npm is only how it is delivered. macOS, Linux and Windows, on x64 and arm64.
 
 ```sh
 npm update -g jira-fetch    # upgrade
@@ -59,21 +53,24 @@ chmod +x jira-fetch-macos-aarch64
 xattr -d com.apple.quarantine jira-fetch-macos-aarch64
 ```
 
-Nothing else about the tool changes; `npm update` is simply not available to you.
+Nothing else changes, though `npm update` is then not available to you.
 
 </details>
 
 ## Configuration
 
-Everything — your credentials and the filters — lives in **one YAML file per project**, in your own
-configuration directory, outside every repository:
+Your credentials and your filters live in **one YAML file per project**, in your own configuration
+directory, outside every repository:
 
 |              |                                                                                      |
 | ------------ | ------------------------------------------------------------------------------------ |
 | macOS, Linux | `~/.config/jira-fetch/<project-path>.yml`                                            |
 | Windows      | `%APPDATA%\jira-fetch\<project-path>.yml` (that is `%USERPROFILE%\AppData\Roaming\`) |
 
-The filename is derived from the git repository you are in, so you never have to pick it:
+The filename is derived from the git repository you are in, so you never have to pick it — and
+there is nothing to pass: no environment variables (no `JIRA_API_TOKEN`), no flags naming a file,
+and no config file inside the project. That is deliberate, and [the MCP server](#mcp-server) is
+why. `jira-fetch` must be run inside a git repository, since the repository root names the file.
 
 ```sh
 jira-fetch setup          # create or change it, interactively
@@ -96,32 +93,13 @@ email: you@example.com
 token: ATATT3xFfGF0...
 ```
 
-`jira-fetch` must be run inside a git repository — the repository root is what names the file. The
-directory is created `0700` and the file `0600`. On Windows there is nothing to set: everything
+The directory is created `0700` and the file `0600`. On Windows there is nothing to set: everything
 under `%APPDATA%` already inherits an ACL granting only you, `SYSTEM` and `Administrators`.
 
-### There is nothing else
-
-No `JIRA_BASE_URL`, no `JIRA_EMAIL`, no `JIRA_API_TOKEN`, no `.env`, no `.env.local`, no config file
-inside the project, and no `--config`, `--token`, `--base-url` or `--email` flag. Configuration
-does not layer, and there is no search order, because there is no search: the path is computed from
-the repository root and that is the only place the tool looks.
-
-That is a deliberate trade against convenience, and the reason is [the MCP server](#mcp-server).
-The tool's central claim is that an agent's access to Jira is decided by a file it does not
-control, and each of those inputs would be a way around it: a `.jira-fetch.yml` created in the
-working directory would shadow the real one, a flag would name a different file outright, and an
-exported `JIRA_API_TOKEN` is a credential the agent's own shell can send to Jira with `curl`
-without going near this tool.
-
-### If two projects share a filename
-
-Path segments become `_`, and runs of punctuation inside a segment fold to `-`; letters keep their
-case, so `/Users/you/code/My Thing` becomes `Users_you_code_My-Thing.yml`. That mapping is not
-reversible: `/a/b_c` and `/a_b/c` produce the same name. This is why the file carries a
-`project` key — the tool compares it against the repository it is actually in and stops with exit 2
-rather than quietly applying another project's filters. Run `jira-fetch setup` in the second
-project to write its own file, or rename one of the directories.
+Two repository paths can land on the same filename, which is why the file carries a `project` key:
+the tool compares it against the repository it is actually in and stops with exit 2 rather than
+applying another project's filters. Run `jira-fetch setup` in the second project to write its own
+file.
 
 ## Usage
 
@@ -143,8 +121,9 @@ because every issue was excluded by a filter.
 ## Filters
 
 Filters decide which tickets are fetched at all, and which comments make it into the document.
-`jira-fetch setup` walks through them; [`docs/config-example.yml`](https://github.com/casaper/jira-fetch/blob/main/docs/config-example.yml) shows
-every option in one file.
+`jira-fetch setup` walks through them;
+[`docs/config-example.yml`](https://github.com/casaper/jira-fetch/blob/main/docs/config-example.yml)
+shows every option in one file.
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json
@@ -179,20 +158,16 @@ JSON works just as well — every name above has a `.json` spelling, and there t
 - **`field` accepts a human name or a raw id.** `"Team"` is resolved against your site's fields;
   `"customfield_10101"` is used directly.
 - **A field name that does not resolve stops the run** with exit code 2, before any issue is
-  fetched. So does one that resolves to _two_ fields — Jira lets two custom fields share a name,
-  and the error names both ids so you can pick one. A warning would be a bad way to be wrong: a
-  `Teem` in an `exclude` rule is a deny rule that silently denies nothing, and in an `include` rule
-  it silently denies everything.
+  fetched. So does one that resolves to _two_ fields — Jira lets two custom fields share a name, and
+  the error names both ids so you can pick one. Failing beats warning here: a `Teem` in an `exclude`
+  rule would deny nothing, and in an `include` rule it would deny everything.
 - `tags` is an alias for `labels`.
-- **Comment filters drop comments, never the ticket** — and they are exclude-only on purpose: an
-  include list would mean "drop every comment not explicitly allowed", which is the wrong default
-  for a document meant to be an archive.
+- **Comment filters drop comments, never the ticket**, and are exclude-only: an include list would
+  mean "drop every comment not explicitly allowed", the wrong default for an archive.
 
-The `$schema` line gives editors autocomplete and inline validation. The schema is generated from
-the same Zod definitions the CLI validates against (`deno task schema`), so the two cannot drift.
-It is published at
-<https://raw.githubusercontent.com/casaper/jira-fetch/main/schema/jira-fetch.schema.json>; point
-`$schema` at a local copy instead if you would rather not fetch it.
+The `$schema` line gives editors autocomplete and inline validation. It is generated from the same
+Zod definitions the CLI validates against, so the two cannot drift, and it can point at a local
+copy if you would rather not fetch it.
 
 ### People
 
@@ -205,55 +180,46 @@ people:
   nameFormat: full # or: initials
 ```
 
-Those are the defaults. `roles` and `fields` are independent axes — narrow either without touching
-the other — and `nameFormat: initials` writes `Kaspar Vollenweider` as `KV`, in the frontmatter and
-in comment headings alike. It shortens a **name** and only a name: when someone has no display name
-and a heading falls through to their email address, the address is left whole.
-
-This is presentation only. `reporter` and `assignee` **filters** read the issue itself, so leaving
-someone out of the document never changes which tickets are fetched.
+Those are the defaults, and `roles` and `fields` are independent axes. `nameFormat: initials` writes
+`Kaspar Vollenweider` as `KV`, in the frontmatter and in comment headings alike; it shortens a name
+and only a name, so a heading falling through to an email address keeps it whole. All of this is
+presentation only — `reporter` and `assignee` **filters** read the issue itself, so leaving someone
+out of the document never changes which tickets are fetched.
 
 ### What "never fetched" really means
 
-Only the **project prefix** can be decided without fetching the issue — it is read from the issue
-key itself. (With `--jql` the search has already named the key, so what stage 1 saves there is the
-per-issue request, not the query.) Every other predicate needs the issue payload, so the filter runs
-immediately after the issue is fetched and **before** comments are paginated or any attachment is
-downloaded. That is where the cost and all the disk writes are, so nothing is written and nothing
-large is transferred for a ticket you filtered out.
-
-A rule is also skipped before fetching when its `project` predicate alone already rules the key
-out, even if the rule has other predicates that would need the payload — nothing the payload could
-say would rescue a rule whose project constraint already failed.
-
-`--dry-run` and `-v` are how you see this happening: a filtered ticket deliberately leaves no trace
-on disk.
+Only the **project prefix** is decided without fetching the issue, since it is read from the issue
+key itself — so a rule is skipped before fetching whenever its `project` predicate alone already
+rules the key out, whatever its other predicates say. Every other predicate needs the payload, so
+the filter runs immediately after the issue is fetched and **before** comments are paginated or
+attachments are downloaded — which is where the cost and every disk write live. A filtered ticket
+transfers nothing large and leaves no trace on disk. `--dry-run` and `-v` show it happening.
 
 ### Restricting JQL
 
-Setting `allowJql: false` in a config shipped alongside the binary makes `--jql` fail with exit
-code 2 — useful when handing the tool to someone who should only fetch tickets by key. It gates the
-flag only, not the requests the tool makes on its own. It also removes the `search_issues` tool from
-the MCP server, so an agent cannot run a query either.
+`allowJql: false` makes `--jql` fail with exit code 2, and removes the `search_issues` tool from the
+MCP server so an agent cannot run a query either — useful when handing the tool to someone who
+should only fetch tickets by key. It gates the flag only, not the requests the tool makes on its
+own.
 
 ## MCP server
 
-`jira-fetch mcp` serves the same pipeline over the [Model Context Protocol](https://modelcontextprotocol.io) on stdin/stdout, so an agent — Claude Code, or any other
-MCP client — can read Jira through this tool.
+`jira-fetch mcp` serves the same pipeline over the
+[Model Context Protocol](https://modelcontextprotocol.io) on stdin/stdout, so an agent — Claude
+Code, or any other MCP client — can read Jira through this tool.
 
 The reason to want that is not convenience. It is that **the agent's access is decided by a config
 file, not by instructions you give it**:
 
 - **It cannot write to Jira, because there is no tool that writes.** Not "the agent was told not
   to" — the capability is absent from `tools/list`, so there is nothing to talk it into.
-- **The filters above decide which issues it may fetch**, exactly as they do at the terminal.
-  There is no tool argument, no query and no prompt that reaches past them.
+- **The filters above decide which issues it may fetch**, exactly as they do at the terminal. There
+  is no tool argument, no query and no prompt that reaches past them.
 - **JQL is not a way around them.** A query only chooses candidate keys; each key then goes through
-  the same two filter stages as a key you typed yourself. Issues the config denies are never
-  fetched, whatever query found them.
+  the same filter stages as a key you typed yourself.
 
-That is a stronger guarantee than a prompt, and cheaper than minting a separate read-only Atlassian
-token for every class of ticket you want to fence off.
+Which is cheaper than minting a separate read-only Atlassian token for every class of ticket you
+want to fence off.
 
 ### Setting it up with Claude Code
 
@@ -268,31 +234,37 @@ Or without installing anything, at the cost of npx resolving the package on each
 claude mcp add --scope user jira-fetch -- npx -y jira-fetch mcp --out docs/jira
 ```
 
-There is nothing else to pass. The server finds the same config file the CLI would — derived from
-the repository it is started in — and neither a file appearing in your project nor an exported
-variable can change which one that is.
+There is nothing else to pass: the server finds the same config file the CLI would, derived from the
+repository it is started in. `--scope user` puts the definition in `~/.claude.json` rather than a
+`.mcp.json` in the project, which keeps the launch command itself out of the tree the agent edits.
 
-`--scope user` puts the server definition in `~/.claude.json` rather than a `.mcp.json` in the
-project, so the command the server is launched with is not itself a file the agent edits. Worth
-doing, though the guarantee above does not depend on it.
-
-**Check it once.** `-v` prints the config file the server resolved, on stderr, where Claude Code
-shows it as MCP server output. If it is not the file you meant, nothing else on this page is true
-of your setup.
+**Check it once:** `-v` prints the config file the server resolved, on stderr, where Claude Code
+shows it as MCP server output. If it is not the file you meant, nothing else here is true of your
+setup.
 
 ### What the agent cannot do
 
-An agent that edits files in your project and runs commands in it has no easy way past a server
-configured from that same project, and neither closure depends on you remembering a flag.
-
-- **It cannot rewrite the policy**, because the policy is not in the project. It is not even in a
-  file the tool will search for: the path is computed from the repository root, so creating a
+- **It cannot rewrite the policy**, because the policy is not in the project, and not in a file the
+  tool will search for either: the path is computed from the repository root, so creating a
   `.jira-fetch.yml` in the working directory does nothing at all.
 - **It cannot skip the server with the token**, because the token is not in the environment its
   shell inherits, nor in a `.env.local` in the tree. It is in the config file and nowhere else, and
   there is no `--token` flag to put it in a process table either.
 
-`jira-fetch setup` offers to write Claude Code deny rules as well:
+**But none of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
+"$(jira-fetch config-file)"` is not a trick, it is a command. What the design buys is that the
+policy and the credential are not things the agent meets in the course of its work; reaching either
+means
+deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's side: an
+API token belonging to an account that cannot see what you do not want read.
+
+The guarantee is also about **what the server will fetch**, not what an agent can read. Filters are
+evaluated at fetch time, so tightening them later does not remove documents already written, and
+those are readable with the agent's ordinary file tools. Point `--out` at a directory you can
+clear if that matters to you.
+
+<details>
+<summary>Claude Code deny rules, which <code>jira-fetch setup</code> offers to write</summary>
 
 ```json
 // ~/.claude/settings.json — one write, every project
@@ -312,11 +284,15 @@ configured from that same project, and neither closure depends on you rememberin
 ```
 
 The config-directory rules go at **user** scope deliberately: a deny at any scope beats an allow at
-any other, so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob`
-and the file reads Claude Code recognises inside Bash. `setup` merges them into whatever is already
-in those files and adds nothing on a second run.
+any other, so a project cannot grant back what they take away. `Read` also covers `Grep`, `Glob` and
+the file reads Claude Code recognises inside Bash. `setup` merges them into whatever is already in
+those files and adds nothing on a second run — and it refuses to run without a terminal, which an
+agent's shell does not have.
 
-`jira-fetch setup` also refuses to run without a terminal, which an agent's shell does not have.
+These stop the well-behaved path and are worth having for that, but they do not reach a script that
+opens the file itself, and an agent with a shell can edit the settings files too.
+
+</details>
 
 ### The tools
 
@@ -328,38 +304,14 @@ in those files and adds nothing on a second run.
 `search_issues` is **not offered at all** when the config sets `allowJql: false` — it is missing
 from `tools/list`, rather than present and refusing.
 
-Both write into the output directory fixed when the server starts, and return a link to each
-document. **No tool takes a path**: the agent chooses which issues it wants, never where bytes
-land. No ticket content travels through the protocol — the agent reads the files, which is what
-makes "it only gets what the config allowed" literal.
+Both write into the output directory fixed when the server starts and return a link to each
+document. **No tool takes a path**: the agent chooses which issues it wants, never where bytes land.
+No ticket content travels through the protocol — the agent reads the files.
 
 An issue the config denies is reported as `not available (no such issue, or not permitted by this
-server configuration)` and **no file is written for it**. That is the same sentence a nonexistent
-issue gets, on purpose: answering differently would let an agent map your deny-list by asking for
-keys one at a time and watching which answer comes back. Jira's own API already conflates the two.
-
-### What this does and does not guarantee
-
-**None of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
-"$(jira-fetch config-file)"` is not a trick, it is a command. The deny rules above stop the
-well-behaved path, and they are worth having for that, but they do not reach a Python or Node
-script that opens the file itself, and an agent with a shell can edit the settings files too. The
-terminal check on `setup` is the same kind of thing: a barrier, not a boundary, since anything that
-can allocate a pty gets past it.
-
-What the design actually buys is that the policy and the credential are not things the agent
-encounters in the course of its work. Reaching either means deliberately stepping outside the
-workspace — unusual, and visible when it happens — rather than opening a file that sits in the
-repository anyway. The only **hard** boundary is on Atlassian's side: an API token belonging to
-an account that cannot see what you do not want read. This tool makes the soft boundary a great
-deal harder to cross by accident or by improvisation; it does not replace the hard one.
-
-The guarantee is also about **what the server will fetch**, not about what an agent can read.
-Documents already sitting in the output directory are readable with its ordinary file tools, and
-filters are evaluated at fetch time — tightening them later does not go back and remove documents
-already written. Since the MCP server and the CLI share one `filters` block, the CLI cannot have written
-something the server would deny under the same config; the gap is only ever a config that has since
-been tightened. If that matters to you, point `--out` at a directory you can clear.
+server configuration)` and **no file is written for it**. A nonexistent issue gets the same
+sentence, on purpose: answering differently would let an agent map your deny-list by probing keys
+one at a time. Jira's own API already conflates the two.
 
 ## Contributing
 
@@ -375,17 +327,12 @@ badge at the top of this page is that run.
 
 [MIT](https://github.com/casaper/jira-fetch/blob/main/LICENSE).
 
-Nothing in the dependency tree stands in the way: Deno, the Deno standard library (`@std/*`) and
-zod are all MIT. The **compiled binaries** are a slightly different matter — `deno compile` embeds
-the Deno runtime and V8 into each artifact, so a release carries their notices too: Deno and `@std`
-under MIT, V8 under BSD-3-Clause, and the Rust crates Deno links under MIT/Apache-2.0. All
-permissive, none copyleft; the obligation is attribution, not disclosure.
+Every dependency is permissive: Deno, the Deno standard library (`@std/*`) and zod are MIT, the V8
+the binaries embed is BSD-3-Clause, and Atlassian's Jira and ADF schemas — vendored under `spec/`,
+generated into `src/jira/schema_types.ts` — are Apache-2.0, attributed in
+[spec/NOTICE](https://github.com/casaper/jira-fetch/blob/main/spec/NOTICE). None of it is copyleft;
+the obligation is attribution, not disclosure.
 
-`src/jira/schema_types.ts` is generated from Atlassian's published Jira and ADF schemas, which are
-**Apache-2.0** and vendored under `spec/`. That file is compiled into the binaries, so the release
-carries Atlassian's attribution as well — kept in [spec/NOTICE](https://github.com/casaper/jira-fetch/blob/main/spec/NOTICE) and in the generated
-file's own header. Apache-2.0 is permissive and imposes no copyleft on the rest of this project.
-
-One honest footnote to the copyright line, given the disclaimer above: purely AI-generated work may
-not attract copyright protection in the first place in some jurisdictions, the US among them. MIT is
-still the right label — it says plainly that you may use this for anything.
+One footnote, given the disclaimer at the top: purely AI-generated work may not attract copyright
+protection at all in some jurisdictions, the US among them. MIT is still the right label — it says
+plainly that you may use this for anything.
