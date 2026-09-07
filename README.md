@@ -30,8 +30,7 @@ listed in the frontmatter's `assets`, the complete index of what was fetched.
 npm install -g jira-fetch
 ```
 
-npm downloads one prebuilt binary for your platform — nothing is compiled, and nothing needs Node or
-Deno once it is there; npm is only how it is delivered. macOS, Linux and Windows, on x64 and arm64.
+Works on macOS, Linux and Windows, x64 and arm64.
 
 ```sh
 npm update -g jira-fetch    # upgrade
