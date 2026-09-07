@@ -254,9 +254,8 @@ setup.
 **But none of this is a sandbox.** The server runs as you, and so does the agent's shell — `cat
 "$(jira-fetch config-file)"` is not a trick, it is a command. What the design buys is that the
 policy and the credential are not things the agent meets in the course of its work; reaching either
-means
-deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's side: an
-API token belonging to an account that cannot see what you do not want read.
+means deliberately stepping outside the workspace. The only **hard** boundary is on Atlassian's
+side: an API token belonging to an account that cannot see what you do not want read.
 
 The guarantee is also about **what the server will fetch**, not what an agent can read. Filters are
 evaluated at fetch time, so tightening them later does not remove documents already written, and
@@ -315,24 +314,4 @@ one at a time. Jira's own API already conflates the two.
 
 ## Contributing
 
-Issues and pull requests are welcome. Everything about working on this — the tasks, the code style,
-the commit convention, how the test suite is sealed and how a release is cut — is in
-[CONTRIBUTING.md](https://github.com/casaper/jira-fetch/blob/main/CONTRIBUTING.md).
-
-The suite that runs on every push needs **no credentials and no network**: it drives the whole CLI,
-and the MCP server, against a fake Jira on localhost. It runs on Linux, macOS and Windows, and the
-badge at the top of this page is that run.
-
-## License
-
-[MIT](https://github.com/casaper/jira-fetch/blob/main/LICENSE).
-
-Every dependency is permissive: Deno, the Deno standard library (`@std/*`) and zod are MIT, the V8
-the binaries embed is BSD-3-Clause, and Atlassian's Jira and ADF schemas — vendored under `spec/`,
-generated into `src/jira/schema_types.ts` — are Apache-2.0, attributed in
-[spec/NOTICE](https://github.com/casaper/jira-fetch/blob/main/spec/NOTICE). None of it is copyleft;
-the obligation is attribution, not disclosure.
-
-One footnote, given the disclaimer at the top: purely AI-generated work may not attract copyright
-protection at all in some jurisdictions, the US among them. MIT is still the right label — it says
-plainly that you may use this for anything.
+[CONTRIBUTING.md](https://github.com/casaper/jira-fetch/blob/main/CONTRIBUTING.md)
