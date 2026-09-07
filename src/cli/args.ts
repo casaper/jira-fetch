@@ -23,7 +23,10 @@ export type Args = Pick<ConfigFile, 'out'> & {
   jql?: string;
   dryRun: boolean;
   verbose: boolean;
-  help: boolean;
+  /** Which page to print, decided here so `main.ts` has one branch rather than a precedence
+   * rule spread over two flags and a subcommand. `mcp` is the only subcommand with a page of
+   * its own; the CLI page documents the rest. */
+  help: 'cli' | 'mcp' | false;
   version: boolean;
 };
 
@@ -38,6 +41,10 @@ const COMMANDS = {
   setup: 'setup',
   'config-file': 'configFile',
 } as const satisfies Record<string, Args['mode']>;
+
+/** Deliberately not in `COMMANDS`: `help` needs no mode, because it is answered and returned
+ * before anything dispatches on one. */
+const HELP_COMMAND = 'help';
 
 /**
  * Flags that used to exist, and why each had to go.
@@ -57,83 +64,25 @@ const REMOVED: Record<string, string> = {
   '--email': '--email was removed: set email in the config file. Run `jira-fetch setup`.',
 };
 
-export const HELP = `jira-fetch ${VERSION}
-Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
-
-USAGE
-  jira-fetch <ISSUE-KEY>...          fetch one or more issues by key
-  jira-fetch --jql "<JQL>"           fetch every issue matching a query
-  jira-fetch mcp                     serve the same pipeline over MCP on stdio
-  jira-fetch setup                   configure this project, interactively
-  jira-fetch config-file             print the path of this project's config file
-
-OPTIONS
-  -o, --out <dir>      output directory (default: current directory)
-      --jql <query>    fetch by JQL; refused when the config sets allowJql: false
-  -n, --dry-run        report what would be fetched and filtered; write nothing
-  -v, --verbose        per-issue progress and filter decisions on stderr
-  -h, --help           show this help
-      --version        show the version
-
-CONFIGURATION
-  One YAML file per project, in your own config directory, and nothing else. No environment
-  variables, no .env, no config file inside the project, no flag to point elsewhere.
-
-    ~/.config/jira-fetch/<project-path>.yml     macOS and Linux
-    %APPDATA%\\jira-fetch\\<project-path>.yml     Windows
-
-  The name is derived from the git repository you are in, so jira-fetch config-file is the
-  only way to be sure which file a run will read. It holds the credentials (baseUrl, email,
-  token) and the policy:
-
-    filters     which tickets are fetched, and which comments end up in the document
-    people      which of reporter/assignee/commenter appear, and how much each says
-    allowJql    when false, --jql is refused and search_issues is not offered at all
-
-  Run jira-fetch setup to create or edit it.
-
-  That the path is derived rather than searched for is the point, not a detail. A file appearing
-  inside the project cannot shadow it, no flag can name a different one, and there is no
-  environment variable to export — so what an agent may fetch is decided by a file outside the
-  tree it works in. See MCP SERVER below.
-
-MCP SERVER
-  jira-fetch mcp speaks the Model Context Protocol on stdin/stdout, for Claude Code and other
-  MCP clients. It offers two tools and no others:
-
-    fetch_issues    write documents for the given issue keys
-    search_issues   the same, for every issue a JQL query matches
-                    (not offered at all when the config sets allowJql: false)
-
-  Both write into the output directory fixed at startup and return links to what they wrote.
-  There is no tool that changes anything in Jira, and none takes a path. The config's filters
-  decide which issues may be fetched; a client cannot override them.
-
-  Serving an agent that can also edit the project, register it once for your user:
-
-    claude mcp add --scope user jira-fetch -- jira-fetch mcp --out docs/jira
-
-  --scope user keeps the launch command out of the project tree. There is nothing else to pass:
-  the server finds the same config file this CLI would, and neither a planted file nor an
-  exported variable can change which one that is.
-
-  jira-fetch setup also writes deny rules telling Claude Code to keep away from the config
-  directory. Those stop the well-behaved path; they are not a sandbox. The only hard boundary is
-  what the API token itself is permitted to see on Atlassian's side.
-
-OUTPUT
-  <out>/<ISSUE-KEY>.md         the document (overwritten if it already exists)
-  <out>/.<ISSUE-KEY>/          its attachments
-
-EXIT CODES
-  0 success   1 runtime error   2 usage or config error
-  3 nothing written because every issue was excluded by a filter
-`;
+/**
+ * Which help page an invocation asks for, if any.
+ *
+ * `jira-fetch help <command>` and `jira-fetch <command> --help` are alternative spellings of one
+ * thing, so they are resolved here together rather than left to agree by coincidence. `mcp` is the
+ * only subcommand with a page of its own, so `help setup` lands on the CLI page — which documents
+ * `setup`.
+ */
+const helpPage = (positional: string[], help: boolean, mcpHelp: boolean): Args['help'] => {
+  if (positional[0] === HELP_COMMAND) return positional[1] === 'mcp' ? 'mcp' : 'cli';
+  if (mcpHelp) return 'mcp';
+  if (help) return positional[0] === 'mcp' ? 'mcp' : 'cli';
+  return false;
+};
 
 export function parseCliArgs(argv: string[]): Args {
   const parsed = parseArgs(argv, {
     string: ['out', 'jql'],
-    boolean: ['dry-run', 'verbose', 'help', 'version'],
+    boolean: ['dry-run', 'verbose', 'help', 'mcp-help', 'version'],
     alias: {
       o: 'out',
       n: 'dry-run',
@@ -150,6 +99,19 @@ export function parseCliArgs(argv: string[]): Args {
   });
 
   const positional = parsed._.map((raw) => String(raw).trim());
+
+  if (positional[0] === HELP_COMMAND) {
+    // Matched as an exact command for the same reason `COMMANDS` is: a typo should name itself
+    // rather than quietly select the general help.
+    if (positional.length > 2) {
+      throw new UsageError('jira-fetch help takes one command at most');
+    }
+    const topic = positional[1];
+    if (topic !== undefined && !Object.hasOwn(COMMANDS, topic)) {
+      throw new UsageError(`no help for "${topic}"; run jira-fetch --help for the commands`);
+    }
+  }
+
   const command = Object.hasOwn(COMMANDS, positional[0] ?? '')
     ? COMMANDS[positional[0] as keyof typeof COMMANDS]
     : undefined;
@@ -161,7 +123,7 @@ export function parseCliArgs(argv: string[]): Args {
     out: parsed.out || undefined,
     dryRun: parsed['dry-run'],
     verbose: parsed.verbose,
-    help: parsed.help,
+    help: helpPage(positional, parsed.help, parsed['mcp-help']),
     version: parsed.version,
   };
 

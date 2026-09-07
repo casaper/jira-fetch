@@ -222,8 +222,9 @@ changelog entry. Non-conventional subjects are not silently dropped; they collec
 not part of `deno task check`, which would then fail on every unreleased commit.
 
 **The version string lives in two files**: `deno.json` and `VERSION` in `src/cli/args.ts`, which
-`--help` prints. Nothing at type level can hold them equal, so `scripts/release.ts` owns both and
-refuses to start when they have drifted — the same class of hazard as `PERMISSIONS` above.
+the help pages print. Nothing at type level can hold them equal, so `scripts/release.ts` owns
+both and refuses to start when they have drifted — the same class of hazard as `PERMISSIONS`
+above.
 
 ### npm is the install channel, and its publish is the one step that cannot be undone
 
@@ -355,7 +356,8 @@ standalone `deno task publish` is still checked.
 
 ```
 src/main.ts             orchestration; owns the exit codes and the mode dispatch
-src/cli/args.ts         flag parsing and --help
+src/cli/args.ts         flag parsing
+src/cli/help.ts         the two help pages, the CLI's and the MCP server's
 src/config/schema.ts    Zod schemas — the single source of truth (see below)
 src/config/location.ts  where a project's config file is — git root, slug, config dir
 src/config/config.ts    reading and resolving that one file
@@ -374,6 +376,16 @@ spec/                   vendored Atlassian schemas, pinned (see below)
 
 Tests are colocated as `*_test.ts`; fixtures live in `test/fixtures/`, and the fake Jira both
 end-to-end suites drive is `test/fake_jira.ts`.
+
+**There are two help pages** (`src/cli/help.ts`): `HELP` for the CLI, and `MCP_HELP` for the server.
+`parseCliArgs` resolves every spelling — `-h`, `--help`, `--mcp-help`, `jira-fetch help`,
+`jira-fetch help <command>`, `jira-fetch <command> --help` — down to `help: 'cli' | 'mcp' | false`,
+so `main.ts` has one branch rather than a precedence rule spread over two flags and a positional.
+`jira-fetch help mcp` and `jira-fetch mcp --help` are the same thing by construction, in one
+four-line function. `MCP_HELP` carries no CLI usage and the CLI page names `mcp` only as a command;
+`src/cli/help_test.ts` refuses either drifting back, along with any line past 92 characters, since
+`deno fmt` cannot reflow the inside of a template literal and `fmt --check` would pass a 110-column
+help line.
 
 ## Configuration is derived, never discovered
 

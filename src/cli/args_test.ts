@@ -66,13 +66,31 @@ Deno.test('the removed flags are refused in their --flag=value form too', () => 
 });
 
 Deno.test('--help and --version short-circuit the key requirement', () => {
-  assert(parseCliArgs(['--help']).help);
+  assertEquals(parseCliArgs(['--help']).help, 'cli');
   assert(parseCliArgs(['--version']).version);
+});
+
+Deno.test('every spelling of help resolves to one of the two pages', () => {
+  assertEquals(parseCliArgs(['--help']).help, 'cli');
+  assertEquals(parseCliArgs(['help']).help, 'cli');
+  assertEquals(parseCliArgs(['--mcp-help']).help, 'mcp');
+  assertEquals(parseCliArgs(['mcp', '--help']).help, 'mcp');
+  assertEquals(parseCliArgs(['help', 'mcp']).help, 'mcp');
+  // `setup` has no page of its own, and the two spellings must still agree.
+  assertEquals(parseCliArgs(['help', 'setup']).help, 'cli');
+  assertEquals(parseCliArgs(['setup', '--help']).help, 'cli');
+  assertFalse(parseCliArgs(['DN-1']).help);
+});
+
+Deno.test('help refuses a topic that is not a command', () => {
+  assertThrows(() => parseCliArgs(['help', 'nonsense']), UsageError, 'no help for');
+  assertThrows(() => parseCliArgs(['help', 'mcp', 'setup']), UsageError, 'one command at most');
 });
 
 Deno.test('flags default to false rather than undefined', () => {
   const args = parseCliArgs(['DN-1']);
   assertFalse(args.dryRun);
   assertFalse(args.verbose);
+  assertFalse(args.help);
   assertEquals(args.out, undefined);
 });
