@@ -152,12 +152,10 @@ out of the document never changes which tickets are fetched.
 
 ### What "never fetched" really means
 
-Only the **project prefix** is decided without fetching the issue, since it is read from the issue
-key itself — so a rule is skipped before fetching whenever its `project` predicate alone already
-rules the key out, whatever its other predicates say. Every other predicate needs the payload, so
-the filter runs immediately after the issue is fetched and **before** comments are paginated or
-attachments are downloaded — which is where the cost and every disk write live. A filtered ticket
-transfers nothing large and leaves no trace on disk. `--dry-run` and `-v` show it happening.
+Only the **project prefix** is decided without fetching, since it comes from the issue key.
+Everything else needs the payload, so the filter runs before comments and attachments — where the
+cost and every disk write are. A filtered ticket costs one request and writes nothing; `--dry-run`
+and `-v` show it happening.
 
 ### Restricting JQL
 
