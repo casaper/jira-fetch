@@ -37,23 +37,6 @@ npm update -g jira-fetch    # upgrade
 npx jira-fetch DN-1243      # run it once, installing nothing
 ```
 
-<details>
-<summary>Without npm</summary>
-
-Every release also attaches the six binaries directly, and they are the same files npm serves:
-<https://github.com/casaper/jira-fetch/releases>. Download the one for your platform, make it
-executable and put it on your `PATH`. On macOS they are neither signed nor notarised, so Gatekeeper
-quarantines anything downloaded and you have to say so explicitly:
-
-```sh
-chmod +x jira-fetch-macos-aarch64
-xattr -d com.apple.quarantine jira-fetch-macos-aarch64
-```
-
-Nothing else changes, though `npm update` is then not available to you.
-
-</details>
-
 ## Configuration
 
 Your credentials and your filters live in **one YAML file per project**, in your own configuration
