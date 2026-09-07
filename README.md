@@ -142,32 +142,25 @@ filters:
       - author: [Automation for Jira]
 ```
 
-JSON works just as well — every name above has a `.json` spelling, and there the binding is a
-`"$schema"` key rather than a comment.
-
 - **Every predicate in a rule must match** (AND); **rules in a list are OR'd**. So the example drops
   a ticket in project SUP, _or_ labelled `wontfix`, _or_ …
 - `include` works the same way: if it is non-empty, a ticket must match one of its rules to be
   fetched. **Exclude beats include.**
 - **`null` means "absent"** — an anonymous portal reporter, an unassigned issue, an unset field. It
-  is spelled as JSON `null` so it can never collide with someone actually named "anonymous".
-- **`field` reaches every field, built-in ones included.** `Status`, `Issue Type`, `Components`,
-  `Priority`, `Resolution` and `Fix Version/s` are spelled exactly as Jira spells them, so
-  `field: {Status: [Done, Cancelled]}` and `field: {Issue Type: [Bug]}` do what they look like.
-  That is how you filter by type or status; there is no separate predicate for them.
-- **`field` accepts a human name or a raw id.** `"Team"` is resolved against your site's fields;
-  `"customfield_10101"` is used directly.
+  cannot collide with someone actually named "anonymous".
+- **`field` reaches every field, built-in ones included**, spelled exactly as Jira spells it:
+  `field: {Status: [Done, Cancelled]}` and `field: {Issue Type: [Bug]}` are how you filter by status
+  and by type, and there is no separate predicate for either. A raw `customfield_10101` works in
+  place of a name.
 - **A field name that does not resolve stops the run** with exit code 2, before any issue is
-  fetched. So does one that resolves to _two_ fields — Jira lets two custom fields share a name, and
-  the error names both ids so you can pick one. Failing beats warning here: a `Teem` in an `exclude`
-  rule would deny nothing, and in an `include` rule it would deny everything.
+  fetched — as does one that resolves to _two_ fields, since Jira lets two custom fields share a
+  name. The error names both ids so you can pick one.
 - `tags` is an alias for `labels`.
-- **Comment filters drop comments, never the ticket**, and are exclude-only: an include list would
-  mean "drop every comment not explicitly allowed", the wrong default for an archive.
+- **Comment filters drop comments, never the ticket**, and are exclude-only.
 
 The `$schema` line gives editors autocomplete and inline validation. It is generated from the same
-Zod definitions the CLI validates against, so the two cannot drift, and it can point at a local
-copy if you would rather not fetch it.
+Zod definitions the CLI validates against, so the two cannot drift; point it at a local copy if you
+would rather not fetch it.
 
 ### People
 

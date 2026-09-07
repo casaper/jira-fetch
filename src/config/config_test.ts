@@ -186,10 +186,10 @@ Deno.test('a config file with no project key is refused by the schema', async ()
   });
 });
 
-Deno.test('JSON is no longer understood, even when the bytes would parse as YAML', async () => {
-  // JSON happens to be a YAML subset, so this would silently work if the extension still routed
-  // to a JSON parser. What must not work is a `.json` file being *found*: paths are derived with
-  // a .yml suffix and nothing searches for anything else.
+Deno.test('a .json config file is never found, even though JSON parses as YAML', async () => {
+  // JSON is a YAML subset, so the bytes would parse happily. What must not work is a `.json` file
+  // being *found* at all: paths are derived with a .yml suffix and nothing searches for anything
+  // else.
   await withTemp(async (dir) => {
     const path = join(dir, 'project.json');
     await Deno.writeTextFile(path, JSON.stringify({ project: dir, baseUrl: 'nonsense' }));
