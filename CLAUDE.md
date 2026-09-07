@@ -506,6 +506,21 @@ deliberately non-interactive: a command that can be scripted is also one the e2e
 to end. With no keys it reuses the manifest's selection, and with neither it says so rather than
 reading every project the token can see.
 
+**`jira-fetch filters` fills the cache itself and must keep doing so.** The menu exists to offer what
+the site actually contains, so a first run that found an empty cache and said "go and run
+`jira-fetch cache` first" was the pre-cache menu with extra steps — it offered nothing and sent the
+reader away. `src/setup/ensure_cache.ts` owns the sequence, and the order in it is forced rather than
+chosen: the site-wide resources are read first because the project picker offers the **cached**
+project list, and only then can anything project-scoped be read. Nothing inside its TTL is refetched,
+so opening the menu twice in a minute costs nothing the second time — `src/setup/ensure_cache_test.ts`
+asserts both halves against a counting `MetadataClient`, which is the seam that makes "this was never
+fetched" assertable without an HTTP server.
+
+Consequently **no reason string a menu shows may tell the reader to run `jira-fetch cache`**. By the
+time one is rendered the refresh has already been attempted, so a resource that is still missing is
+one the site would not give up; `NOT_CACHED` and `OUT_OF_DATE` in `src/setup/metadata.ts` say that
+instead, and a test pins it.
+
 ## Setup writes files outside the repository, and only when asked
 
 `src/setup/` is split so that everything testable is tested and the two menus stay thin.
@@ -520,6 +535,7 @@ it passes plain data and gets a typed answer back, so swapping the library is on
 | `filter_draft.ts`                       | choices ↔ `TicketRule` ↔ `FiltersConfig` — pure                    |
 | `filter_render.ts`                      | rules as prose, metadata as choice lists — pure                    |
 | `metadata.ts`                           | the cache read into what a menu offers — tested against a temp dir |
+| `ensure_cache.ts`                       | refresh, pick projects, refresh those — prompts nothing, tested    |
 | `prompts.ts`, `tui.ts`, `filter_tui.ts` | the cliffy layer — thin, untested                                  |
 
 - **`config_file.ts`** composes and writes the config: validated through the loader's own
@@ -542,7 +558,12 @@ it passes plain data and gets a typed answer back, so swapping the library is on
   `--allow-run` in every binary, the MCP server included, so the path is printed.
   `filter_tui.ts` loads through `loadProjectConfig` rather than a bare read, so
   `assertProjectMatches` runs: `projectSlug` is not injective, and rewriting a file that declares
-  another project would clobber somebody else's rules.
+  another project would clobber somebody else's rules. It also guards `baseUrl`, `email` **and**
+  `token` before anything else, because it reads the site rather than only editing a file — naming
+  which are missing beats a 401 three screens in.
+- **`ensure_cache.ts`** is the refresh, and it takes the project selection as a **callback** rather
+  than prompting. That is what puts the whole sequence — refresh the site, choose the projects,
+  refresh those — on the tested side of the line while `filter_tui.ts` keeps only the screens.
 
 Only `setup` writes any of this. `fetch` and `mcp` must never touch Claude Code configuration — a
 Jira fetcher rewriting permission files on every run would fight the user's own edits.

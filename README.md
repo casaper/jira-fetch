@@ -89,6 +89,10 @@ jira-fetch cache --show     # what is cached, and how old
 jira-fetch cache --clear    # delete it
 ```
 
+`jira-fetch filters` does this for you before it offers anything, so there is nothing to run first —
+the command above is for looking at what was read, or for reading a project you have not filtered
+on yet.
+
 |              |                                      |
 | ------------ | ------------------------------------ |
 | macOS, Linux | `~/.cache/jira-fetch/<hash>/`        |

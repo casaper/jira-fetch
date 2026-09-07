@@ -46,6 +46,7 @@ Deno.test('the pure setup modules reach no terminal and no console', async () =>
     'filter_render.ts',
     'metadata_view.ts',
     'verify.ts',
+    'ensure_cache.ts',
   ];
   for (const name of pure) {
     const text = await Deno.readTextFile(join(SRC, 'setup', name));

@@ -12,7 +12,9 @@ import { loadProjectConfig } from '../config/config.ts';
 import { ConfigError } from '../config/errors.ts';
 import type { FiltersConfig, ValueMatcher } from '../config/schema.ts';
 import { parseFilters } from '../config/schema.ts';
-import { readManifest } from '../cache/store.ts';
+import { summarise } from '../cache/report.ts';
+import { PROJECT_KEY } from '../cli/args.ts';
+import { JiraClient } from '../jira/client.ts';
 import { readConfigFileIfPresent, writeConfigFile } from './config_file.ts';
 import {
   clearPredicate,
@@ -39,6 +41,8 @@ import {
   valueChoiceList,
 } from './filter_render.ts';
 import type { ChoiceList, NameLookup } from './filter_render.ts';
+import { ensureCache } from './ensure_cache.ts';
+import type { ProjectChoice } from './ensure_cache.ts';
 import { loadMetadataView, nameLookup } from './metadata.ts';
 import type { MetadataView, NamedValue, Resource } from './metadata_view.ts';
 import { askText, check, confirm, hasTerminal, type Item, pick, rule, say } from './prompts.ts';
@@ -47,6 +51,51 @@ export type FilterSetupOptions = {
   configPath: string;
   projectRoot: string;
   cacheDir: string;
+  /** Injectable so the cache refresh can be pointed at a fake site; nothing but a test would. */
+  fetch?: typeof fetch;
+};
+
+/** Project keys as typed by hand: upper-cased and split, so `dn, sup` is accepted. */
+const splitKeys = (value: string): string[] =>
+  value.split(',').map((key) => key.trim().toUpperCase()).filter((key) => key !== '');
+
+/**
+ * Which Jira projects the cache covers, and so which values this menu can offer.
+ *
+ * An empty offer is not a dead end. `GET /project/search` needs Browse Projects, and a token that
+ * cannot list the site's projects can still read one it is told the key of — so the keys are typed
+ * in that case rather than the screen being empty.
+ */
+const chooseProjects = async (offer: ProjectChoice[], current: string[]): Promise<string[]> => {
+  say();
+  if (offer.length === 0) {
+    say('This token could not list the projects on this site, so name them yourself.');
+    const answer = await askText({
+      message: 'Jira project keys',
+      hint: 'comma-separated, e.g. DN, SUP',
+      ...(current.length > 0 ? { default: current.join(', ') } : {}),
+      validate: (value) => {
+        const keys = splitKeys(value);
+        if (keys.length === 0) return 'name at least one project key';
+        const bad = keys.find((key) => !PROJECT_KEY.test(key));
+        return bad === undefined ? true : `"${bad}" is not a Jira project key`;
+      },
+    });
+    return splitKeys(answer);
+  }
+
+  say('Components, versions, sprints, issue types and assignable people are per project, so this');
+  say('decides what there is to pick from.');
+  return await check<string>({
+    message: 'Projects to offer values from',
+    items: offer.map((project) => ({
+      value: project.key,
+      name: project.name ? `${project.key} — ${project.name}` : project.key,
+      checked: current.includes(project.key),
+    })),
+    search: offer.length > 8,
+    min: 1,
+  });
 };
 
 const BACK = Symbol('back');
@@ -361,9 +410,16 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   // is not injective, and rewriting a file that declares another project would clobber somebody
   // else's filters.
   const file = await loadProjectConfig(opts.configPath, opts.projectRoot);
-  if (!file.baseUrl) {
+  // All three, because this menu now reads the site to find out what there is to filter on rather
+  // than only editing a file. Naming the missing ones beats a 401 three screens later. Destructured
+  // so the three are `string` from here on without an assertion.
+  const { baseUrl, email, token } = file;
+  if (!baseUrl || !email || !token) {
+    const missing = [['baseUrl', baseUrl], ['email', email], ['token', token]]
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
     throw new ConfigError(
-      `${opts.configPath} has no baseUrl yet — run jira-fetch setup first`,
+      `${opts.configPath} has no ${missing.join(', ')} yet — run jira-fetch setup first`,
     );
   }
 
@@ -371,42 +427,81 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
   say(`Filters for ${opts.projectRoot}`);
   say(`  ${opts.configPath}`);
 
-  const manifest = await readManifest(opts.cacheDir, {
-    project: opts.projectRoot,
-    baseUrl: file.baseUrl,
-  });
-  const projectKeys = manifest.hit?.projects ?? [];
-
-  const view = await loadMetadataView({
-    cacheDir: opts.cacheDir,
-    project: opts.projectRoot,
-    baseUrl: file.baseUrl,
-    projectKeys,
-    now: () => Date.now(),
+  const client = new JiraClient({
+    baseUrl,
+    email,
+    token,
+    ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
   });
 
-  say();
-  say('What this site has to filter on');
-  for (const line of resourceReport(view)) say(line);
+  /**
+   * Fill the cache, then read it back.
+   *
+   * Both halves together, always: a refresh without a re-read would leave the menu offering the
+   * values it had before, which is the failure that is hardest to notice. The refresh skips
+   * anything still inside its TTL, so opening this menu twice in a minute costs no requests the
+   * second time.
+   */
+  const load = async (
+    choose: (offer: ProjectChoice[], current: string[]) => Promise<string[]>,
+  ): Promise<{ view: MetadataView; projectKeys: string[] }> => {
+    say();
+    say('Reading what this site has to filter on. This can take a few seconds; anything already');
+    say('cached and still current is not fetched again.');
+    const ensured = await ensureCache({
+      client,
+      cacheDir: opts.cacheDir,
+      project: opts.projectRoot,
+      baseUrl,
+      now: () => Date.now(),
+      // The cache's own log is the --verbose channel and speaks in cache terms; a menu should not
+      // relay it. What happened is reported below, in the words `jira-fetch cache` uses.
+      log: () => {},
+      chooseProjects: choose,
+    });
+
+    say();
+    if (ensured.failure !== undefined) {
+      // A Jira failure is a note on a resource, never a throw, so only a cache directory that
+      // cannot be written reaches here. Whatever is already on disk is still usable.
+      say(`The cache could not be written: ${ensured.failure}`);
+      say('Carrying on with whatever was cached before.');
+      say();
+    }
+
+    const view = await loadMetadataView({
+      cacheDir: opts.cacheDir,
+      project: opts.projectRoot,
+      baseUrl,
+      projectKeys: ensured.projectKeys,
+      now: () => Date.now(),
+    });
+
+    // The view rather than the refresh outcomes: this screen answers "what can I pick from", and
+    // every reason a list is short travels with it. `summarise` adds the half the view cannot
+    // know — how much of that came off the wire just now rather than out of the cache.
+    say('What this site has to filter on');
+    for (const line of resourceReport(view)) say(line);
+    if (ensured.failure === undefined) say(`  ${summarise(ensured.outcomes)}`);
+
+    return { view, projectKeys: ensured.projectKeys };
+  };
+
+  let loaded = await load(chooseProjects);
+  let view = loaded.view;
+  let projectKeys = loaded.projectKeys;
 
   if (nothingAvailable(view)) {
     say();
-    say('Nothing could be read from the cache, so there is nothing to pick from.');
-    const next = await pick<'cache' | 'type' | 'quit'>({
-      message: 'What now?',
-      items: [
-        { value: 'cache', name: 'Quit and run jira-fetch cache <PROJECT-KEY>... first' },
-        { value: 'type', name: 'Carry on and type every value by hand' },
-        { value: 'quit', name: 'Quit' },
-      ],
-    });
-    if (next !== 'type') {
+    say('Nothing could be read from this site, so there is nothing to pick from. That usually');
+    say('means the credentials are wrong, or the token may not browse these projects.');
+    if (!await confirm({ message: 'Carry on and type every value by hand?', default: false })) {
       say('Nothing was written.');
       return 0;
     }
   }
 
-  const names = nameLookup(view);
+  let names = nameLookup(view);
   let draft: FiltersDraft = filtersToDraft(file.filters);
 
   say();
@@ -418,7 +513,9 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
     say();
     for (const line of filtersToLines(current, names)) say(line);
 
-    const chosen = await pick<'include' | 'exclude' | 'comments' | 'save' | 'quit'>({
+    const chosen = await pick<
+      'include' | 'exclude' | 'comments' | 'projects' | 'save' | 'quit'
+    >({
       message: 'Filters',
       items: [
         {
@@ -432,6 +529,13 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
         {
           value: 'comments',
           name: `Comments — authors to leave out              (${draft.commentAuthors.length})`,
+        },
+        rule(),
+        {
+          value: 'projects',
+          name: `Projects — where values are offered from     (${
+            projectKeys.length > 0 ? projectKeys.join(', ') : 'none'
+          })`,
         },
         rule(),
         { value: 'save', name: 'Review and save' },
@@ -453,6 +557,13 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
     }
     if (chosen === 'comments') {
       draft = { ...draft, commentAuthors: await editCommentAuthors(draft.commentAuthors, view) };
+      continue;
+    }
+    if (chosen === 'projects') {
+      loaded = await load(chooseProjects);
+      view = loaded.view;
+      projectKeys = loaded.projectKeys;
+      names = nameLookup(view);
       continue;
     }
 

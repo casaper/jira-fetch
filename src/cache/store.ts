@@ -30,6 +30,20 @@ import {
 /** The fields every entry carries, whatever its payload. */
 type Pinned = { project: string; baseUrl: string; fetchedAt: number; resource: string };
 
+/**
+ * One entry as a reader sees it.
+ *
+ * Wider than a payload because `readEntry` pins the project, the site and the resource *inside* the
+ * file rather than trusting its name, so those are part of what parses. Exported because every
+ * reader outside this module needs the same shape, and two copies of it would be two things to
+ * change.
+ */
+export type PinnedEntry<T> = Pinned & {
+  state: CacheState;
+  notes: CacheNote[];
+  data: T;
+};
+
 export type ReadResult<E> = { hit: E; miss?: undefined } | { hit?: undefined; miss: MissReason };
 
 /** Where an entry lives, and what it must be pinned to. */
@@ -161,9 +175,9 @@ export const writeEntry = async <E extends Pinned>(
   return parsed.data;
 };
 
-/** The manifest, if it is this project's and this site's. Owned by the `cache` command alone:
- * nothing on the fetch path reads or writes it, so a run that only needs the field list cannot
- * clobber a project selection. */
+/** The manifest, if it is this project's and this site's. Written only where a project selection is
+ * made — `jira-fetch cache` and the filter menu — and, the load-bearing half, never on the fetch
+ * path: a run that only needs the field list cannot clobber a selection. */
 export const readManifest = async (
   cacheDir: string,
   expected: { project: string; baseUrl: string },

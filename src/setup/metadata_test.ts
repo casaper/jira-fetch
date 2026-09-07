@@ -65,7 +65,8 @@ Deno.test('an empty cache is unavailable everywhere, with a reason and no empty 
     for (const [name, resource] of Object.entries(view)) {
       assertEquals(resource.status, 'unavailable', name);
       assert(resource.reason, `${name} has no reason`);
-      assertStringIncludes(resource.reason, 'jira-fetch cache');
+      // No reason may send the reader off to another command: the menu has already tried.
+      assertStringIncludes(resource.reason, 'could not be');
     }
   });
 });
