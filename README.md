@@ -159,10 +159,9 @@ and `-v` show it happening.
 
 ### Restricting JQL
 
-`allowJql: false` makes `--jql` fail with exit code 2, and removes the `search_issues` tool from the
-MCP server so an agent cannot run a query either — useful when handing the tool to someone who
-should only fetch tickets by key. It gates the flag only, not the requests the tool makes on its
-own.
+`allowJql: false` makes `--jql` fail with exit code 2. It also removes the `search_issues` tool
+from the MCP server, so an agent cannot query either. Use it when someone should only fetch tickets
+by key. It gates the flag, not the requests the tool makes on its own.
 
 ## MCP server
 
