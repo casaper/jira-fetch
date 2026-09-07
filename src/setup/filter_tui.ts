@@ -88,7 +88,10 @@ const chooseProjects = async (offer: ProjectChoice[], current: string[]): Promis
 
   say('Components, versions, sprints, issue types and assignable people are per project, so this');
   say('decides what there is to pick from.');
-  return await check<string>({
+  // No minimum. Choosing none is a real answer — someone filtering only on project keys and labels
+  // needs nothing project-scoped, `loadMetadataView` handles an empty selection, and Escape is a
+  // no-op at a prompt's top level, so a minimum here would leave Ctrl+C as the only way out.
+  const chosen = await check<string>({
     message: 'Projects to offer values from',
     items: offer.map((project) => ({
       value: project.key,
@@ -96,9 +99,27 @@ const chooseProjects = async (offer: ProjectChoice[], current: string[]): Promis
       checked: current.includes(project.key),
     })),
     search: offer.length > 8,
-    min: 1,
   });
+  if (chosen.length === 0) {
+    say('  None chosen, so only site-wide values — labels, fields, priorities — will be offered.');
+    say('  Projects on the main menu changes that.');
+  }
+  return chosen;
 };
+
+/**
+ * The picker at menu open, which asks only while nothing is selected.
+ *
+ * Opening this menu to change one label rule must not walk through a project picker first, every
+ * time. So a selection is asked for once and then reused and merely refreshed; **Projects** on the
+ * main menu is how it changes.
+ *
+ * An empty selection is asked about again on the next open, since it is indistinguishable from
+ * never having been asked. That is the better of the two: one Enter dismisses it, where the
+ * alternative is a menu that silently offers no project values for ever.
+ */
+const chooseIfUnset = (offer: ProjectChoice[], current: string[]): Promise<string[]> =>
+  current.length > 0 ? Promise.resolve(current) : chooseProjects(offer, current);
 
 const BACK = Symbol('back');
 type Back = typeof BACK;
@@ -501,7 +522,7 @@ export const runFilterSetup = async (opts: FilterSetupOptions): Promise<number> 
     return { view, projectKeys: ensured.projectKeys };
   };
 
-  let loaded = await load(chooseProjects);
+  let loaded = await load(chooseIfUnset);
   let view = loaded.view;
   let projectKeys = loaded.projectKeys;
 
