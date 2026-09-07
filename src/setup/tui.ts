@@ -1,23 +1,54 @@
-/** `jira-fetch setup`: an interactive menu for a project's configuration.
+/** `jira-fetch setup`: credentials first, checked against the site, then everything else as a form.
  *
- * **The terminal check is the barrier.** An agent's shell has no controlling terminal, so
- * refusing to run without one keeps this command — the one that can write credentials and relax
- * filters — off the ordinary agent path at no cost in permissions. It is a barrier, not a
- * boundary: anything that can allocate a pty gets past it. That is worth stating plainly rather
- * than dressing up.
+ * **The terminal check is the barrier.** An agent's shell has no controlling terminal, so refusing
+ * to run without one keeps this command — the one that can write credentials and relax filters —
+ * off the ordinary agent path at no cost in permissions. It is a barrier, not a boundary: anything
+ * that can allocate a pty gets past it. That is worth stating plainly rather than dressing up.
  *
- * Built from `@std/cli`, which was already a dependency, so the whole of this needs no new
- * package and no permission beyond the four the binary is compiled with. Nothing here spawns a
- * process: `--allow-run` in the shipped binary would be carried by the MCP server too, and
- * "open the file in your editor" is not worth that. The path is printed instead.
+ * Nothing here spawns a process. `--allow-run` in the shipped binary would be carried by the MCP
+ * server too, and "open the file in your editor" is not worth that; the path is printed instead.
+ *
+ * **Credentials are written the moment they check out, and everything else on Save.** Ctrl+C inside
+ * a prompt calls `Deno.exit(130)` and nothing above it runs — see `prompts.ts` — so a form that
+ * accumulated every answer and wrote once at the end would lose all of it silently. Two checkpoints
+ * means an interrupt costs at most the stage in progress, never the token just typed.
  */
 
-import { promptSecret } from '@std/cli/prompt-secret';
-import { promptSelect } from '@std/cli/unstable-prompt-select';
 import { ConfigError } from '../config/errors.ts';
-import type { ConfigFile, TicketRule } from '../config/schema.ts';
+import type { ConfigFile, PersonField, PersonRole } from '../config/schema.ts';
+import {
+  People,
+  PersonField as PersonFieldEnum,
+  PersonRole as PersonRoleEnum,
+} from '../config/schema.ts';
 import { applyDenyRules, denyTargets } from './claude_settings.ts';
 import { readConfigFileIfPresent, writeConfigFile } from './config_file.ts';
+import { runFilterSetup } from './filter_tui.ts';
+import {
+  buildPeople,
+  type FormAction,
+  formExits,
+  formRows,
+  type FormState,
+  hasCredentials,
+  toConfigFile,
+  validateBaseUrl,
+  validateEmail,
+  validateOut,
+  validateToken,
+} from './form.ts';
+import {
+  askSecret,
+  askText,
+  check,
+  confirm,
+  hasTerminal,
+  type Item,
+  pick,
+  rule,
+  say,
+} from './prompts.ts';
+import { describeFailure, verifyCredentials } from './verify.ts';
 
 const TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 
@@ -26,159 +57,119 @@ const TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens';
 export type SetupOptions = {
   configPath: string;
   configDir: string;
-  /** Where this project's Jira metadata is cached. Needed here only so the deny rules can name
-   * it: `setup` reads and writes nothing in it. */
+  /** Where this project's Jira metadata is cached. `setup` reads and writes nothing in it — it is
+   * needed so the deny rules can name it, and so the filter menu can be handed it. */
   cacheDir: string;
   projectRoot: string;
   home: string;
+  /** Injectable so the credential probe can be pointed elsewhere; nothing but a test would. */
+  fetch?: typeof fetch;
 };
 
-const say = (line = ''): void => console.log(line);
+const askSite = (current?: string): Promise<string> =>
+  askText({
+    message: 'Jira site',
+    hint: 'the address of your Jira Cloud site, https:// included',
+    default: current ?? 'https://your-site.atlassian.net',
+    validate: validateBaseUrl,
+  });
 
-/** A free-text answer, with the current value offered as the default. Returns `undefined` when
- * the user submits nothing and there was nothing before. */
-const ask = (question: string, current?: string): string | undefined => {
-  const answer = prompt(`${question}${current === undefined ? '' : ` [${current}]`}`);
-  if (answer === null) return current;
-  const trimmed = answer.trim();
-  return trimmed === '' ? current : trimmed;
+const askEmail = (current?: string): Promise<string> =>
+  askText({
+    message: 'Atlassian account email',
+    hint: 'the account the API token belongs to',
+    ...(current ? { default: current } : {}),
+    validate: validateEmail,
+  });
+
+const askToken = async (): Promise<string> => {
+  say();
+  say(`  Create one at ${TOKEN_URL}`);
+  say('  It is stored in this file and nowhere else — there is no environment variable, so');
+  say('  it is not something a shell in your project inherits. Input is not echoed.');
+  return await askSecret({ message: 'API token', validate: validateToken });
 };
 
-const choose = <T extends string>(question: string, options: T[]): T | undefined =>
-  promptSelect(question, options) as T | undefined;
+/**
+ * The three answers, then proof that they work.
+ *
+ * Three, not two: a token cannot be checked without knowing which site to check it against.
+ * Returns the state, or `undefined` when the user gave up.
+ */
+const collectCredentials = async (
+  opts: SetupOptions,
+  loaded: FormState,
+): Promise<FormState | undefined> => {
+  let state: FormState = { ...loaded };
 
-/** A one-line summary of a key, so the menu shows what is set without showing the token. */
-const summarize = (config: Partial<ConfigFile>): Record<string, string> => ({
-  site: config.baseUrl ?? 'not set',
-  email: config.email ?? 'not set',
-  token: config.token ? `set (${config.token.length} characters)` : 'not set',
-  out: config.out ?? 'the working directory',
-  jql: config.allowJql === false ? 'refused' : 'allowed',
-  filters: `${config.filters?.include?.length ?? 0} include, ` +
-    `${config.filters?.exclude?.length ?? 0} exclude, ` +
-    `${config.filters?.comments?.exclude?.length ?? 0} comment`,
-  people: (config.people?.roles ?? ['reporter', 'assignee', 'commenter']).join(', ') || 'none',
-});
-
-const list = (question: string, current?: string[]): string[] | undefined => {
-  const answer = ask(`${question} (comma-separated)`, current?.join(', '));
-  if (answer === undefined) return undefined;
-  const values = answer.split(',').map((v) => v.trim()).filter((v) => v.length > 0);
-  return values.length > 0 ? values : undefined;
-};
-
-/** Builds one filter rule. Every predicate in a rule must hold, so this collects as many as the
- * user wants to add and returns them as a single rule. */
-const buildRule = (): TicketRule | undefined => {
-  const rule: TicketRule = {};
   for (;;) {
-    const chosen = choose('Add a condition to this rule (all of them must match)', [
-      'project — the prefix of the issue key, e.g. DN',
-      'labels — what the Jira UI calls tags',
-      'field — any field by name: Status, Issue Type, Components, Team…',
-      'title — a regular expression on the summary',
-      'reporter — who raised it',
-      'assignee — who it is assigned to',
-      'done with this rule',
-      'cancel this rule',
-    ]);
-    if (chosen === undefined || chosen.startsWith('cancel')) return undefined;
-    if (chosen.startsWith('done')) {
-      return Object.keys(rule).length > 0 ? rule : undefined;
-    }
+    const baseUrl = await askSite(state.baseUrl);
+    const email = await askEmail(state.email);
+    const token = await askToken();
+    state = { ...state, baseUrl, email, token };
 
-    if (chosen.startsWith('project')) {
-      say('  The only condition decidable from the key alone, so a ticket it rules out is never');
-      say('  requested from Jira at all.');
-      rule.project = list('  Project prefixes', rule.project) ?? rule.project;
-    } else if (chosen.startsWith('labels')) {
-      rule.labels = list('  Labels', rule.labels as string[] | undefined) ?? rule.labels;
-    } else if (chosen.startsWith('field')) {
-      say('  A name is resolved against this Jira site. One that does not exist, or that two');
-      say('  fields share, stops the run — a condition that quietly matches nothing is worse.');
-      const name = ask('  Field name');
-      const values = name === undefined ? undefined : list(`  Accepted values for ${name}`);
-      if (name !== undefined && values !== undefined) {
-        rule.field = { ...rule.field, [name]: values };
-      }
-    } else if (chosen.startsWith('title')) {
-      const matches = ask('  Regular expression', rule.title?.matches);
-      if (matches !== undefined) {
-        const flags = ask('  Flags, e.g. i for case-insensitive', rule.title?.flags ?? '');
-        rule.title = { matches, ...(flags ? { flags } : {}) };
-      }
-    } else if (chosen.startsWith('reporter')) {
-      rule.reporter =
-        list('  Names, emails or account ids', rule.reporter as string[] | undefined) ??
-          rule.reporter;
-    } else if (chosen.startsWith('assignee')) {
-      rule.assignee =
-        list('  Names, emails or account ids', rule.assignee as string[] | undefined) ??
-          rule.assignee;
-    }
-  }
-};
-
-const editFilters = (config: Partial<ConfigFile>): void => {
-  for (;;) {
-    const filters = config.filters ?? {};
-    const include = filters.include ?? [];
-    const exclude = filters.exclude ?? [];
     say();
-    say('Filters decide which tickets may be fetched — by the CLI and by an agent through the');
-    say('MCP server alike. Exclude beats include; with no include rules, everything not excluded');
-    say('is allowed.');
-    say(`  include: ${include.length ? include.map((r) => JSON.stringify(r)).join('  ') : 'none'}`);
-    say(`  exclude: ${exclude.length ? exclude.map((r) => JSON.stringify(r)).join('  ') : 'none'}`);
+    say(`Checking those against ${baseUrl}`);
+    const result = await verifyCredentials({ baseUrl, email, token }, opts.fetch);
 
-    const chosen = choose('Filters', [
-      'add an include rule — a ticket must match one of these',
-      'add an exclude rule — matching any of these drops the ticket',
-      'remove the last include rule',
-      'remove the last exclude rule',
-      'exclude comments by author',
-      'back',
-    ]);
-    if (chosen === undefined || chosen === 'back') return;
-
-    if (chosen.startsWith('add an include')) {
-      const rule = buildRule();
-      if (rule) config.filters = { ...filters, include: [...include, rule] };
-    } else if (chosen.startsWith('add an exclude')) {
-      const rule = buildRule();
-      if (rule) config.filters = { ...filters, exclude: [...exclude, rule] };
-    } else if (chosen.startsWith('remove the last include')) {
-      config.filters = { ...filters, include: include.slice(0, -1) };
-    } else if (chosen.startsWith('remove the last exclude')) {
-      config.filters = { ...filters, exclude: exclude.slice(0, -1) };
-    } else if (chosen.startsWith('exclude comments')) {
-      const authors = list('  Comment authors to leave out', undefined);
-      if (authors) {
-        config.filters = { ...filters, comments: { exclude: [{ author: authors }] } };
-      }
+    if (result.ok) {
+      const who = result.emailAddress ? ` (${result.emailAddress})` : '';
+      say(`  signed in as ${result.displayName}${who}`);
+      return state;
     }
+
+    say();
+    for (const line of describeFailure(result)) say(`  ${line}`);
+
+    const next = await pick<'again' | 'anyway' | 'quit'>({
+      message: 'That did not work — what now?',
+      items: [
+        { value: 'again', name: 'Go back over all three' },
+        { value: 'anyway', name: 'Save these anyway and carry on' },
+        { value: 'quit', name: 'Quit without saving' },
+      ],
+    });
+    if (next === 'quit') return undefined;
+    if (next === 'anyway') return state;
   }
 };
 
-const editPeople = (config: Partial<ConfigFile>): void => {
+const editPeople = async (state: FormState): Promise<FormState> => {
   say();
   say('How much the document says about people. None of it reaches the filters: hiding someone');
   say('never changes which tickets are fetched.');
-  const roles = choose('Who appears in the document', [
-    'reporter, assignee and commenters',
-    'reporter and assignee only',
-    'nobody',
-  ]);
-  if (roles === undefined) return;
-  config.people = {
-    roles: roles.startsWith('nobody')
-      ? []
-      : roles.startsWith('reporter and assignee')
-      ? ['reporter', 'assignee']
-      : ['reporter', 'assignee', 'commenter'],
-    fields: config.people?.fields ?? ['name', 'email'],
-    nameFormat: choose('How names are written', ['full', 'initials']) ?? 'full',
-  };
+  const current = state.people ?? People.parse({});
+
+  // The option lists come from the Zod enums, so adding a role or a field in src/config/schema.ts
+  // appears here with no edit.
+  const roles = await check<PersonRole>({
+    message: 'Who appears in the document',
+    items: PersonRoleEnum.options.map((role) => ({
+      value: role,
+      name: role,
+      checked: current.roles.includes(role),
+    })),
+  });
+  const fields = await check<PersonField>({
+    message: 'What is recorded about them',
+    items: PersonFieldEnum.options.map((field) => ({
+      value: field,
+      name: field,
+      checked: current.fields.includes(field),
+    })),
+    // Mirrors the schema's own .min(1), so the prompt cannot produce something it would refuse.
+    min: 1,
+  });
+  const nameFormat = await pick<'full' | 'initials'>({
+    message: 'How names are written',
+    items: [
+      { value: 'full', name: 'full — Kaspar Vollenweider' },
+      { value: 'initials', name: 'initials — KV' },
+    ],
+    default: current.nameFormat,
+  });
+
+  return { ...state, people: buildPeople(roles, fields, nameFormat) };
 };
 
 const offerDenyRules = async (opts: SetupOptions): Promise<void> => {
@@ -186,8 +177,7 @@ const offerDenyRules = async (opts: SetupOptions): Promise<void> => {
   say('Claude Code can be told to keep away from the configuration directory. This stops the');
   say('well-behaved path — it is not a sandbox, and an agent with a shell can still read the');
   say("file. The only hard boundary is what your API token may see on Atlassian's side.");
-  const answer = choose('Write those deny rules?', ['yes', 'no']);
-  if (answer !== 'yes') return;
+  if (!await confirm({ message: 'Write those deny rules?', default: true })) return;
 
   const targets = denyTargets({
     configDir: opts.configDir,
@@ -206,85 +196,144 @@ const offerDenyRules = async (opts: SetupOptions): Promise<void> => {
     } catch (cause) {
       // One unwritable settings file must not lose the config that was just saved.
       say(`  could not update ${target.path}: ${(cause as Error).message}`);
-      for (const rule of target.rules) say(`    ${rule}`);
+      for (const denyRule of target.rules) say(`    ${denyRule}`);
     }
+  }
+};
+
+/** Writes the state, reporting what happened. `false` means the file was refused. */
+const save = async (opts: SetupOptions, state: FormState): Promise<boolean> => {
+  const loaded = await readConfigFileIfPresent(opts.configPath) ?? {};
+  const next = toConfigFile(loaded as Record<string, unknown>, state, opts.projectRoot);
+  try {
+    await writeConfigFile(opts.configPath, next as ConfigFile);
+    say();
+    say(`Saved ${opts.configPath}`);
+    return true;
+  } catch (cause) {
+    say(`Not saved: ${(cause as Error).message}`);
+    return false;
   }
 };
 
 /** Runs the menu. Returns the process exit code. */
 export const runSetup = async (opts: SetupOptions): Promise<number> => {
-  if (!Deno.stdin.isTerminal()) {
+  if (!hasTerminal()) {
     throw new ConfigError(
       'jira-fetch setup needs a terminal.\n' +
-        `  To see the file it would write: jira-fetch config-file\n` +
-        `  ${opts.configPath}`,
+        `  To see the file it would write: jira-fetch config-file\n  ${opts.configPath}`,
     );
   }
 
   const existing = await readConfigFileIfPresent(opts.configPath);
-  const config: Partial<ConfigFile> = { ...existing, project: opts.projectRoot };
-
   say();
   say(`Configuring ${opts.projectRoot}`);
   say(`  ${opts.configPath}`);
+  say();
+  say('Your credentials are saved as soon as they check out. Everything after that is saved when');
+  say('you choose Save. Ctrl+C leaves immediately.');
+
+  let state: FormState = {
+    ...(existing?.baseUrl ? { baseUrl: existing.baseUrl } : {}),
+    ...(existing?.email ? { email: existing.email } : {}),
+    ...(existing?.token ? { token: existing.token } : {}),
+    ...(existing?.out ? { out: existing.out } : {}),
+    ...(existing?.allowJql === undefined ? {} : { allowJql: existing.allowJql }),
+    ...(existing?.people ? { people: existing.people } : {}),
+  };
+
+  // Credentials first, and nothing else until they work: every screen after this is about a site
+  // that has already answered.
+  const credentials = await collectCredentials(opts, state);
+  if (credentials === undefined) {
+    say('Nothing was written.');
+    return 0;
+  }
+  state = credentials;
+  if (!await save(opts, state)) return 2;
 
   for (;;) {
-    const s = summarize(config);
-    say();
-    const chosen = choose('What would you like to change?', [
-      `Jira site      ${s.site}`,
-      `Account email  ${s.email}`,
-      `API token      ${s.token}`,
-      `Output folder  ${s.out}`,
-      `JQL queries    ${s.jql}`,
-      `Filters        ${s.filters}`,
-      `People         ${s.people}`,
-      'Save and exit',
-      'Exit without saving',
-    ]);
+    const rows = formRows(state);
+    const width = Math.max(...rows.map((row) => row.label.length));
+    const items: Array<Item<FormAction>> = rows.map((row) => ({
+      value: row.action,
+      name: `${row.label.padEnd(width)}  ${row.value}`,
+    }));
+    items.push(rule());
+    for (const exit of formExits(state)) items.push({ value: exit.action, name: exit.label });
 
-    if (chosen === undefined || chosen === 'Exit without saving') {
-      say('Nothing was written.');
-      return 0;
-    }
+    const chosen = await pick<FormAction>({
+      message: 'jira-fetch for this project',
+      items,
+      default: 'out',
+    });
 
-    if (chosen.startsWith('Jira site')) {
-      say('  The address of your Jira Cloud site, https:// included.');
-      config.baseUrl = ask('  Jira site', config.baseUrl);
-    } else if (chosen.startsWith('Account email')) {
-      say('  The Atlassian account the API token belongs to.');
-      config.email = ask('  Account email', config.email);
-    } else if (chosen.startsWith('API token')) {
-      say(`  Create one at ${TOKEN_URL}`);
-      say('  It is stored in this file and nowhere else — there is no environment variable, so');
-      say('  it is not something a shell in your project inherits. Input is not echoed.');
-      const token = promptSecret('  API token: ');
-      if (token !== null && token.trim() !== '') config.token = token.trim();
-    } else if (chosen.startsWith('Output folder')) {
-      say('  Where documents are written, relative to wherever you run the tool.');
-      config.out = ask('  Output folder', config.out);
-    } else if (chosen.startsWith('JQL queries')) {
-      say('  Refusing them also removes the search_issues tool from the MCP server entirely,');
-      say('  rather than having it refuse when called.');
-      config.allowJql = choose('JQL queries', ['allowed', 'refused']) !== 'refused';
-    } else if (chosen.startsWith('Filters')) {
-      editFilters(config);
-    } else if (chosen.startsWith('People')) {
-      editPeople(config);
-    } else if (chosen === 'Save and exit') {
-      try {
-        await writeConfigFile(opts.configPath, config as ConfigFile);
-      } catch (cause) {
-        say(`Not saved: ${(cause as Error).message}`);
-        continue;
+    switch (chosen) {
+      case 'baseUrl':
+      case 'email':
+      case 'token': {
+        // Any of the three changing means all three are unproven again.
+        const rechecked = await collectCredentials(opts, state);
+        if (rechecked) {
+          state = rechecked;
+          await save(opts, state);
+        }
+        break;
       }
-      say();
-      say(`Saved ${opts.configPath}`);
-      await offerDenyRules(opts);
-      say();
-      say('To edit it by hand:');
-      say('  $EDITOR "$(jira-fetch config-file)"');
-      return 0;
+      case 'out': {
+        const answer = await askText({
+          message: 'Output folder',
+          hint: 'where documents are written, relative to wherever you run jira-fetch',
+          ...(state.out ? { default: state.out } : {}),
+          validate: validateOut,
+        });
+        state = { ...state, out: answer.trim() === '' ? undefined : answer.trim() };
+        break;
+      }
+      case 'allowJql':
+        state = {
+          ...state,
+          allowJql: await pick<boolean>({
+            message: 'JQL queries',
+            items: [
+              { value: true, name: 'allowed' },
+              {
+                value: false,
+                name: 'refused — also removes the search_issues tool from the MCP server ' +
+                  'entirely, rather than having it refuse when called',
+              },
+            ],
+            default: state.allowJql !== false,
+          }),
+        };
+        break;
+      case 'people':
+        state = await editPeople(state);
+        break;
+      case 'save':
+        if (!await save(opts, state)) break;
+        await offerDenyRules(opts);
+        say();
+        say('To edit it by hand:');
+        say('  $EDITOR "$(jira-fetch config-file)"');
+        return 0;
+      case 'saveAndFilters':
+        if (!await save(opts, state)) break;
+        await offerDenyRules(opts);
+        // Re-read rather than passing the object across, so the chained path runs the same code as
+        // a standalone `jira-fetch filters` — and the write is proved to round trip on the spot.
+        return await runFilterSetup({
+          configPath: opts.configPath,
+          projectRoot: opts.projectRoot,
+          cacheDir: opts.cacheDir,
+        });
+      case 'quit':
+        say(
+          hasCredentials(state)
+            ? 'Nothing more was written. Your credentials are already saved.'
+            : 'Nothing was written.',
+        );
+        return 0;
     }
   }
 };

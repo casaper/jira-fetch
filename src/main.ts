@@ -12,6 +12,7 @@ import { JiraClient, JiraError } from './jira/client.ts';
 import { createSession, type FetchSession, type Outcome } from './fetch/session.ts';
 import { serveMcp } from './mcp/server.ts';
 import { runSetup } from './setup/tui.ts';
+import { runFilterSetup } from './setup/filter_tui.ts';
 import { dirname } from '@std/path';
 
 /** Whether a path is there, without caring why not — a permission error is still "no file to
@@ -140,6 +141,16 @@ export const run = async (argv: string[], deps: RunDeps = {}): Promise<number> =
         cacheDir,
         projectRoot,
         home: Deno.env.get('HOME') ?? Deno.env.get('USERPROFILE') ?? '',
+      });
+    }
+
+    if (args.mode === 'filters') {
+      // Before `resolveConfig`, because this menu needs the raw ConfigFile to merge and write —
+      // a resolved Config has already dropped the keys it does not use.
+      return await runFilterSetup({
+        configPath: filePath,
+        projectRoot,
+        cacheDir,
       });
     }
 

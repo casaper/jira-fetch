@@ -162,3 +162,26 @@ Deno.test('cache has no help page of its own, and both spellings agree', () => {
   assertEquals(parseCliArgs(['help', 'cache']).help, 'cli');
   assertEquals(parseCliArgs(['cache', '--help']).help, 'cli');
 });
+
+Deno.test('filters is a subcommand with no page of its own', () => {
+  assertEquals(parseCliArgs(['filters']).mode, 'filters');
+  assertEquals(parseCliArgs(['filters', '--help']).help, 'cli');
+  assertEquals(parseCliArgs(['help', 'filters']).help, 'cli');
+  // A typo names itself rather than quietly selecting the general help.
+  assertThrows(() => parseCliArgs(['help', 'filter']), UsageError, 'no help for');
+});
+
+Deno.test('filters fetches nothing, so it takes no keys and no fetch flags', () => {
+  assertThrows(() => parseCliArgs(['filters', 'DN-1']), UsageError, 'takes no issue keys');
+  assertThrows(() => parseCliArgs(['filters', '--jql', 'x']), UsageError, '--jql has no meaning');
+  assertThrows(
+    () => parseCliArgs(['filters', '--dry-run']),
+    UsageError,
+    '--dry-run has no meaning',
+  );
+  assertThrows(
+    () => parseCliArgs(['filters', '--refresh']),
+    UsageError,
+    'outside jira-fetch cache',
+  );
+});

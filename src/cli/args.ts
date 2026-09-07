@@ -17,9 +17,9 @@ export class UsageError extends Error {
 export type Args = Pick<ConfigFile, 'out'> & {
   /** `fetch` writes documents for the keys below; `mcp` serves the same pipeline over stdio and
    * takes its keys from tool calls instead; `configFile` prints where this project's
-   * configuration lives, `setup` edits it, and `cache` reads this project's Jira metadata so the
-   * menus can offer what the site actually contains. */
-  mode: 'fetch' | 'mcp' | 'configFile' | 'setup' | 'cache';
+   * configuration lives, `setup` edits it, `filters` builds the filter rules from what the site
+   * contains, and `cache` reads that metadata so those menus have something to offer. */
+  mode: 'fetch' | 'mcp' | 'configFile' | 'setup' | 'filters' | 'cache';
   keys: string[];
   jql?: string;
   dryRun: boolean;
@@ -60,6 +60,7 @@ export const PROJECT_KEY = /^[A-Z][A-Z0-9_]{0,30}$/;
 const COMMANDS = {
   mcp: 'mcp',
   setup: 'setup',
+  filters: 'filters',
   cache: 'cache',
   'config-file': 'configFile',
 } as const satisfies Record<string, Args['mode']>;

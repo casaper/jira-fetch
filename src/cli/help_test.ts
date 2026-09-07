@@ -56,3 +56,15 @@ Deno.test('the MCP page still carries no cache usage', () => {
     assertFalse(MCP_HELP.includes(needle), `MCP_HELP should not mention ${needle}`);
   }
 });
+
+Deno.test('the CLI page names the filter menu as a command', () => {
+  assertStringIncludes(HELP, 'jira-fetch filters');
+});
+
+Deno.test('the MCP page says where the policy it describes is built', () => {
+  // Naming the command is threat-model content on this page, not CLI usage: a reader who has just
+  // been told that a config file decides an agent's access needs to know where that file is
+  // edited. The separation this page keeps is about usage — flags, keys, exit codes — and the
+  // needles above are what pin it.
+  assertStringIncludes(MCP_HELP, 'jira-fetch filters');
+});

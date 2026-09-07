@@ -32,6 +32,8 @@ interface Harness {
   /** The stand-in metadata cache. One per harness, so a cache hit in one test cannot answer a
    * request-count assertion in another. */
   cacheDir: string;
+  /** Where the config file is written, for a test that wants to read it back. */
+  configDir: string;
   requests: string[];
   runWith: (args: string[], options?: RunOptions) => Promise<number>;
   stdout: string[];
@@ -56,6 +58,7 @@ async function withJira(
       out,
       projectRoot,
       cacheDir,
+      configDir,
       requests: fake.requests,
       stdout,
       runWith: async (args, { filters, allowJql, cwd } = {}) => {
@@ -481,4 +484,40 @@ Deno.test('the field list is read once across two runs, not once per run', async
     // the one that would silently pass on a leftover entry if `cacheDir` were not pinned.
     assertEquals(requests.filter((r) => r.endsWith('/rest/api/3/field')).length, 1);
   });
+});
+
+// --- jira-fetch filters ----------------------------------------------------------------------
+
+Deno.test('filters refuses without a terminal, and changes nothing', async () => {
+  // The same barrier as setup, and for the same reason: this menu can relax the rules that decide
+  // an agent's access, and a Bash tool has no controlling terminal.
+  await withJira(async ({ runWith, projectRoot, configDir }) => {
+    await runWith(['config-file']);
+    const before = await Deno.readTextFile(configPathFor(projectRoot, configDir));
+    assertEquals(await runWith(['filters']), EXIT.usageError);
+    assertEquals(await Deno.readTextFile(configPathFor(projectRoot, configDir)), before);
+  });
+});
+
+Deno.test('filters refuses arguments that name work it will not do', async () => {
+  await withJira(async ({ runWith }) => {
+    assertEquals(await runWith(['filters', 'DN-1']), EXIT.usageError);
+    assertEquals(await runWith(['filters', '--jql', 'x']), EXIT.usageError);
+    assertEquals(await runWith(['filters', '--dry-run']), EXIT.usageError);
+  });
+});
+
+Deno.test('filters needs a configuration before it can change one', async () => {
+  // Without credentials there is no site to read the choices from, so it says which command to
+  // run rather than opening an empty menu.
+  const projectRoot = await Deno.makeTempDir();
+  const configDir = await Deno.makeTempDir();
+  const cacheDir = await Deno.makeTempDir();
+  try {
+    assertEquals(await run(['filters'], { projectRoot, configDir, cacheDir }), EXIT.usageError);
+  } finally {
+    await Promise.all(
+      [projectRoot, configDir, cacheDir].map((dir) => Deno.remove(dir, { recursive: true })),
+    );
+  }
 });

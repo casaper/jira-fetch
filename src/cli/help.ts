@@ -14,7 +14,8 @@ Fetch Jira Cloud issues into Markdown files with YAML frontmatter.
 USAGE
   jira-fetch <ISSUE-KEY>...     fetch one or more issues by key
   jira-fetch --jql "<JQL>"      fetch every issue matching a query
-  jira-fetch setup              configure this project, interactively
+  jira-fetch setup              configure this project: credentials, output, people
+  jira-fetch filters            choose which tickets are fetched, from what your site has
   jira-fetch config-file        print the path of this project's config file
   jira-fetch cache <KEY>...     read what your Jira projects contain, for the menus
   jira-fetch mcp                run as an MCP server; see jira-fetch help mcp
@@ -91,6 +92,9 @@ THE GUARANTEE, AND ITS LIMIT
   This is not a sandbox: the server runs as you, and so does the agent's shell. The
   only hard boundary is what the API token may see on Atlassian's side, so use one
   whose account cannot reach what you do not want read.
+
+  That policy is built by jira-fetch filters, from the projects, labels and fields
+  your site actually has.
 
   jira-fetch setup offers Claude Code deny rules for the config directory. They stop
   the well-behaved path and nothing more.
