@@ -6,6 +6,16 @@ Every notable change, grouped by release. Generated from the commit history by
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and its commit
 subjects follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## 0.5.6 — 2026-09-07
+
+### Features
+
+- **cli:** add jira-fetch help and split the MCP help out ([2a5898a](https://github.com/casaper/jira-fetch/commit/2a5898a928a7c6a9d86dd14d9a45fa3478037e49))
+
+### Tests
+
+- **cli:** assert only the needles that encode the rule ([f76cdf1](https://github.com/casaper/jira-fetch/commit/f76cdf19720614ec960459ed2193e7102144ede6))
+
 ## 0.5.5 — 2026-09-07
 
 ### Documentation
