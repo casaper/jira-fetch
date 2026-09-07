@@ -162,7 +162,7 @@ function formatIssues(error: z.ZodError, source: string): string {
   return `${source} is not a valid configuration:\n${lines.join('\n')}`;
 }
 
-/** Validates parsed JSON/YAML against the schema, raising a ConfigError that names the file. */
+/** Validates the parsed YAML against the schema, raising a ConfigError that names the file. */
 export function parseConfigFile(data: unknown, source: string): ConfigFile {
   const result = ConfigFile.safeParse(data);
   if (!result.success) throw new ConfigError(formatIssues(result.error, source));
